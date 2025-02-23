@@ -1,0 +1,104 @@
+## Project 1
+### Daniel DeBonis
+
+
+Your job is to create an R Markdown file that generates a .CSV file (that could for example be imported into a SQL database) with the following information for all of the players:
+Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents
+For the first player, the information would be:
+Gary Hua, ON, 6.0, 1794, 1605
+### Importing txt file to R
+```{r}
+library(tidyverse)
+library(stringr)
+library(readr)
+```
+```{r}
+chessdata = "https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/tournamentinfo.txt"
+df = read.delim(chessdata)
+```
+
+Our data has been uploaded in its current format
+```{r}
+head(df)
+```
+
+### Cleaning the data
+Every third row is a row of dashes, so let's get rid of every third row. 
+```{r}
+df2 <- df |>
+         filter((row_number() %% 3) != 0)
+```
+
+Now let us try to separate this data into separate columns based on the use of the | character
+```{r}
+df3 <- df2 |>
+  slice(-c(1,2))
+    
+```
+
+Now the relevant data for each person is stored across two lines, so let us separate that into two separate data frames. 
+```{r}
+firstdf <- df3[seq(1, nrow(df3), 2), ]
+seconddf <- df3[seq(2, nrow(df3), 2), ]
+```
+
+Now to extract the relevant variables from what we have using regular expressions.
+```{r}
+ID <- as.numeric(str_extract(firstdf, '\\d+'))
+Name <- str_extract(firstdf, "(?<=\\|).*?(?=\\|)")
+State <- str_extract(seconddf, '[A-Z]{2}') 
+Total_Points <- as.numeric(str_extract(firstdf, '\\d+\\.\\d'))
+Player_Pre_Rating <- str_extract(seconddf, "(R:\\s*)(\\d+)")
+Pre_Rating <- as.numeric(str_extract(Player_Pre_Rating, '\\d+'))
+```
+
+We are not asked to consider wins and losses, just the rating of the players faced. Therefore, the last important piece of data that we need to extract are the numbers associated with each opponent. Each opponent's number comes after a letter and a space.
+
+```{r}
+Rounds <- str_extract_all(firstdf, '[A-Z]\\s{2,}\\d+')
+Rounds <- str_extract_all(Rounds, '\\d+')
+rmatrix <- as.matrix(Rounds)
+rdf <- data.frame(rmatrix)
+rdf2 <- rdf |>
+  mutate(opps = str_sub(rmatrix, 3, -2)) ### To remove the c() 
+cleanrdf <- rdf2 |>
+  subset(select = -rmatrix)
+sepmatrix <- cleanrdf |>
+          separate(opps, into = c("game1", "game2", "game3", "game4", "game5", "game6", "game7"), sep = ",")
+remove_quotes <- function(sepmatrix) {
+     sepmatrix[] <- lapply(sepmatrix, function(x) gsub('"', '', x)) 
+     return(sepmatrix)}
+df4 <-remove_quotes(sepmatrix) ### Now the numbers can match the ID tags, or so I thought until I realized they had spaces
+df5 <- as.data.frame(
+  apply(df4,2, function(x) gsub("\\s+", "", x)))
+```
+
+The separate function even added NAs for missing games. The NAs don't necessarily line up with the same game number not played, but since we're only looking at averages, it's not as important. 
+To find the average Pre-Rating for each person's opponents, let's first replace the values in our data frame, or rather create a new data frame using the pre-ratings that are referred to with the IDs in our table as it stands.
+```{r}
+chessdf <- data.frame(ID, Name, State, Total_Points, Pre_Rating)
+new_game1 <- chessdf$Pre_Rating[match(df5$game1, chessdf$ID)]
+new_game2 <- chessdf$Pre_Rating[match(df5$game2, chessdf$ID)]
+new_game3 <- chessdf$Pre_Rating[match(df5$game3, chessdf$ID)]
+new_game4 <- chessdf$Pre_Rating[match(df5$game4, chessdf$ID)]
+new_game5 <- chessdf$Pre_Rating[match(df5$game5, chessdf$ID)]
+new_game6 <- chessdf$Pre_Rating[match(df5$game6, chessdf$ID)]
+new_game7 <- chessdf$Pre_Rating[match(df5$game7, chessdf$ID)]
+preratingdf <- data.frame(new_game1, new_game2, new_game3, new_game4, new_game5, new_game6, new_game7)
+```
+
+### Calculating mean pre-rating scores for opponents
+Now that the scores are all in one table, it should be easy to find the mean of each row.
+```{r}
+Opp_Average <- round(rowMeans(preratingdf, na.rm=T), 0)
+fullchessdf <- chessdf |>
+     mutate(Opp_Average = Opp_Average)
+head(fullchessdf)
+```
+
+### Exporting
+We finally have the exact data that we wanted, so it is time to export this data frame as a csv file.
+```{r}
+write_csv(fullchessdf, 'tournament_summary.csv' , append = FALSE)
+```
+
