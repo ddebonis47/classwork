@@ -1,0 +1,212 @@
+## Project 2
+### Daniel DeBonis
+
+### Dataset 1 - Rolling Stone's Top 500 Albums
+This was the dataset that I posted. It is comprised of the albums ranked on three different iterations of the magazine's list of the 500 Greatest Albums of All Time. Even though this set of data was used for a thorough article with many impressive visualizations, there are still issues in the data. The first step in tidying the data is to import it to R as a csv
+```{r}
+library(tidyverse)
+library(dplyr)
+library(batman)
+rs = "https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/Rolling%20Stone%20500%20(public)%20-%20Data.csv"
+df = read.csv(rs)
+```
+
+The dataset contains 691 observations of 26 variables.
+```{r}
+summary(df)
+```
+
+There are issues of redundancy and relevance among these variables. We do not need both sort and clean versions of the name, so one can be dropped. There are also two empty columns at the end of the data frame that can be dropped as well. Then there is the redundancy between 2003 rank and 2003 rank old, which was a column originally hidden when presented on Google Sheets, so that should also be dropped.
+```{r}
+df <- df |>
+  subset(select = -c(Sort.Name, X2003.Rank.Old, X, X.1))
+```
+
+The next issue to address is missing values. Many of these values are missing structural reasons. Some albums are not on all three editions of the list, such as those released after 2003, the year of the first publication. Others are harder to explain, such as the question mark that appears in the previous table for Wks.on.Billboard. After some research, I have found that that album, "Songs for Swingin' Lovers" by Frank Sinatra, spent 52 weeks on the Billboard chart, so I will add that value in.
+
+```{r}
+df['Wks.on.Billboard'][df['Wks.on.Billboard'] == '?'] <- 52
+head(df)
+```
+
+Another common source of missing values in this dataset are the albums which are not available to stream on Spotify. Being that I do not plan on pulling in data from that source, the best way for me to address those missing values is to drop the columns associated with Spotify data, since it wouldn't be adding to my analysis.
+```{r}
+df <- df |>
+  subset(select = -c(Spotify.URI, Chartmetric.Link, Album.ID, Album.ID.Quoted, Spotify.Popularity))
+```
+
+Combing through the data, I found a handful spelling errors to correct
+```{r}
+df[df == "Greatist"] <- "Greatest"
+df[df == "MotÃ¶rhead"] <- "Motörhead"
+```
+
+Rather than use the given column that calculates differential between rank in 2020 and 2003, I am making my own column for that change in ranking, as well as changes with the intermediary 2012 edition. The column included in the dataset made NAs count as 501 for these, which makes no sense to me. If the album made the list one year and not the other, the exact value of how many places the album changed in its ranking is incalculable. 
+```{r}
+df <- df |>
+  mutate(
+    three_to_20 = X2003.Rank - X2020.Rank,
+    three_to_12 = X2003.Rank - X2012.Rank,
+    twelve_to_20 = X2012.Rank - X2020.Rank
+  )
+```
+
+The genre column is also a mess, but with a category like genre, this is not surprising. Genre is nearly impossible to quantify. Many albums would seemingly belong to multiple categories. It would be a useful metric to analyze this data by, but there is so much missing data and somewhat arbitrary decision making that would assign genres, so it will be best to not use that column moving forward. 
+
+Now that the data is tidy, to do a more meaningful analysis in how the reception of older albums have changed, I would like to focus solely on the albums that made the list all three times
+```{r}
+all_three <- df |>
+  na.omit()
+head(all_three)
+```
+
+```{r}
+ggplot(data = all_three, aes(x = three_to_20)) +
+  geom_histogram(binwidth = 10)
+```
+
+This distribution is much more normal looking than I expected. I mostly expected to see albums losing rankings over the course of 18 years solely due to the fact that there are 18 years worth of new music competing for spots on the chart. 
+
+```{r}
+ggplot(data = all_three, aes(x = twelve_to_20)) +
+  geom_histogram(binwidth = 10) +
+  ggtitle("Comparing rankings in 2012 and 2020")
+ggplot(data = all_three, aes(x = three_to_12)) +
+  geom_histogram(binwidth = 10) +
+  ggtitle("Comparing rankings in 2003 and 2012")
+```
+
+The movement between 2012 and 2020 looks a lot like the movement from 2003 to 2020. The simple explanation is shown by the shocking lack of movement between the 2003 and 2012 editions of the list. 
+```{r}
+all_three |>
+  count(three_to_12)
+```
+
+They kept 100 albums at exactly the same position on the list between 2003 and 2012. However, this closer look at the data does support my previous hypothesis that there would be an overall negative trend for albums that appear on multiple editions due at least in part to the presence of new albums.
+
+
+### Dataset 2 - Competitive Pokemon Statistics
+I have been essentially a day-one fan of the game, but know very little about the competitive scene, so hopefully this dataset will provide me with some insight. 
+```{r}
+pkurl <- "https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/pokemon_competitive_analysis.csv"
+pkdf <- read.csv(pkurl)
+summary(pkdf)
+```
+
+Thankfully, this dataset already follows a tidy structure, with observations as rows and variables as columns. One thing that I cannot figure out is exactly what the values in the Usage columns mean. I understand that having a value, as opposed to a null value, means that someone at some point in the tournament used this character, but what does the value represent? Though I am not sure what it means, I do know that it is meant to be numerical, not categorical so the variable type needs to be changed. 
+
+```{r}
+pkdf <- pkdf |>
+  mutate(legendary = to_logical(legendary))
+pkdf <- pkdf |>
+  mutate(mythical = to_logical(mythical))
+pkdf$Smogon_VGC_Usage_2022 <- na_if(pkdf$Smogon_VGC_Usage_2022, "NoUsage")
+pkdf$Smogon_VGC_Usage_2023 <- na_if(pkdf$Smogon_VGC_Usage_2023, "NoUsage")
+pkdf$Smogon_VGC_Usage_2024 <- na_if(pkdf$Smogon_VGC_Usage_2024, "NoUsage")
+pkdf$Worlds_VGC_Usage_2022 <- na_if(pkdf$Worlds_VGC_Usage_2022, "NoUsage")
+pkdf$Worlds_VGC_Usage_2023 <- na_if(pkdf$Worlds_VGC_Usage_2023, "NoUsage")
+pkdf$Worlds_VGC_Usage_2024 <- na_if(pkdf$Worlds_VGC_Usage_2024, "NoUsage")
+```
+
+Now that the appropriate values have NAs, one more change to improve the data set is to change the Generation column. Though which generation a Pokemon was introduced in is usually represented by a number, it is a categorical variable. Therefore, it is alright that the column is a character type, but there are unnecessary characters we can delete.
+
+```{r}
+str_replace(pkdf$generation, "generation-", "")
+```
+
+Our numbers are Roman numerals, but again, since this is represents a category, not a number to be used in any calculations, it will suffice. Now we can actually answer some questions with this data.
+
+```{r}
+ggplot(pkdf, mapping = aes(x = total_stats, y = Worlds_VGC_Usage_2024)) +
+  geom_point()
+```
+
+```{r}
+ggplot(pkdf, mapping = aes(x = total_stats, y = Smogon_VGC_Usage_2024)) +
+  geom_point()
+### What happened to the x axis?
+```
+
+Despite the oddities of these graphs, we can still tell that on average Pokemon with higher stat totals are used more often in the Smogon tournament than the Worlds, but also a greater variety of Pokemon in general are used at the Smogon tournament. Another question was posed was whehter certain types are preffered, so we can include type as a color. The problem with this analysis is that some Pokemon have 2 types, so they would count in two categories at once. Ideally we would be able to analyse these differences, such as whether the presence of a second type affects the Pokemon getting chosen. 
+
+```{r}
+ggplot(pkdf, mapping = aes(x = total_stats, y = Worlds_VGC_Usage_2024, col = type1)) +
+  geom_point()
+```
+
+```{r}
+ggplot(pkdf, mapping = aes(x = total_stats, y = Smogon_VGC_Usage_2024, col = type1)) +
+  geom_point()
+```
+
+### Dataset 3 - FIFA 21
+Although this dataset is also about a video game, it is one where I have a lot less prior knowledge to apply to understanding the dataset, and it is an even larger one. After importing the csv, we can see what kinds of variables are contained. 
+```{r}
+soccerlink <- "https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/fifa21%20raw%20data%20v2.csv"
+fifadf <- read.csv(soccerlink)
+summary(fifadf)
+```
+
+The first redundancy is the presence of two name columns. We do not need two identifiers for each player. There are 77 columns, most of which are based on a single numerical attribute of the character in the game. There were a few symbols that did not form correctly in Excel, but luckily R renders them correctly (such as the Euro symbol or the star). Thankfully the data is already rather tidy; each row is a single player and every attribute of the player is a column. The one other change I would make is to split the contract column into the two components, start and end years.
+```{r}
+fifadf <- fifadf |>
+  subset(select = -c(LongName, photoUrl))
+```
+
+```{r}
+fifadf <- fifadf |>
+  separate(Contract, into = c("Contract_Start", "Contract_End"), sep = " ~ ")
+```
+
+So not all contracts had an end date. In the cases that are not, the players are either on loan or free, not signed to any contract. If they have no contract, NA would be an appropriate value for contract start
+
+```{r}
+na_if(fifadf$Contract_Start, "Free")
+```
+
+The Joined column consists of dates, but is stored as a character variable. 
+
+```{r}
+fifadf$Joined <- mdy(fifadf$Joined)
+summary(fifadf)
+```
+
+There does not seem to be any other missing values and unfortunately I am not familiar enough with the names of soccer players to be able to spot spelling errors. The last transformations I need to make are converting the columns were numerical values are given in terms of K and M to actual numbers and then making the variables numeric. 
+
+```{r}
+fifadf$Value <- str_replace(fifadf$Value, "€", "")
+fifadf$Wage <- str_replace(fifadf$Wage, "€", "")
+fifadf$Release.Clause <- str_replace(fifadf$Release.Clause, "€", "")
+fifadf$Value <- dplyr::case_when(
+  stringr::str_detect(fifadf$Value, 'M') ~ readr::parse_number(fifadf$Value) * 1e6,
+  stringr::str_detect(fifadf$Value, 'K') ~ readr::parse_number(fifadf$Value) * 1e3,
+  TRUE ~ parse_number(fifadf$Value)
+)
+fifadf$Wage <- dplyr::case_when(
+  stringr::str_detect(fifadf$Wage, 'M') ~ readr::parse_number(fifadf$Wage) * 1e6,
+  stringr::str_detect(fifadf$Wage, 'K') ~ readr::parse_number(fifadf$Wage) * 1e3,
+  TRUE ~ parse_number(fifadf$Wage)
+)
+fifadf$Release.Clause <- dplyr::case_when(
+  stringr::str_detect(fifadf$Release.Clause, 'M') ~ readr::parse_number(fifadf$Release.Clause) * 1e6,
+  stringr::str_detect(fifadf$Release.Clause, 'K') ~ readr::parse_number(fifadf$Release.Clause) * 1e3,
+  TRUE ~ parse_number(fifadf$Release.Clause)
+)
+fifadf[, 19:21] <- sapply(fifadf[, 19:21], as.numeric)
+```
+
+Since there were no analyses suggested in the post with this dataset, I was not sure how X.Ova and POT were different, so let's look at those variables on a scatterplot
+
+```{r}
+ggplot(fifadf, mapping = aes(x = X.OVA, y = POT)) +
+  geom_point()
+```
+
+There is a clear correlation here; maybe another variable can help elucidate the difference between these variables.
+
+```{r}
+ggplot(fifadf, mapping = aes(x = X.OVA, y = POT, size = Total.Stats)) +
+  geom_point()
+```
+
+It does seem like these three variables are very highly correlated, as if they are almost measuring the same thing, overall performance of the player in the video game.
