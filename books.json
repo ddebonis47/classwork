@@ -1,0 +1,27 @@
+var books = [
+	{
+		"Title":"Collected Fictions",
+		"Author1":"Jorge Luis Borges",
+		"Author2":"Andrew Hurley (translator)",
+		"Year":1998,
+		"Publisher":"Penguin",
+		"Pages":575
+	},
+	{
+		"Title":"How to Dodge a Cannonball",
+		"Author1":"Dennard Dayle",
+		"Author2":"",
+		"Year":2025,
+		"Publisher":"Henry Holt & Company",
+		"Pages":334
+	},
+	{
+		"Title":"Applied Data Analysis",
+		"Author1":"Max Kuhn",
+		"Author2":"Kjell Johnson",
+		"Year":2016,
+		"Publisher":"Springer",
+		"Pages":618
+	}
+];
+	
