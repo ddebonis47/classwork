@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<books>
+<book>
+	<title>Collected Fictions</title>
+	<author_1>Jorge Luis Borges</author_1>
+	<author_2>Andrew Hurley (translator)</author_2>
+	<year>1998</year>
+	<publisher>Penguin</publisher>
+	<pages>575</pages>
+</book>
+<book>
+	<title>How to Dodge a Cannonball</title>
+	<author_1>Dennard Dayle</author_1>
+	<author_2></author_2>
+	<year>2025</year>
+	<publisher>Henry Holt and Company</publisher>
+	<pages>334</pages>
+</book>
+<book>
+	<title>Applied Predictive Modeling</title>
+	<author_1>Max Kuhn</author_1>
+	<author_2>Kjell Johnson</author_2>
+	<year>2016</year>
+	<publisher>Springer</publisher>
+	<pages>618</pages>
+</book>
+</books>
