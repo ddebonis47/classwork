@@ -2,7 +2,7 @@
 	"Title":["Collected Fictions", "How to Dodge a Cannonball", "Applied Predictive Modeling"],
 	"Author1":["Jorge Luis Borges", "Dennard Dayle", "Max Kuhn"],
 	"Author2":["Andrew Hurley (translator)", "", "Kjell Johnson"],
-	"Year":["1998", "2025", "2016"],
+	"Year":[1998, 2025, 2016],
 	"Publisher":["Penguin", "Henry Holt & Company", "Springer"],
-	"Pages":["576", "334", "618"]
+	"Pages":[576, 334, 618]
 }
