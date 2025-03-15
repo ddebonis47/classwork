@@ -1,0 +1,61 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+## Assignment 7
+### Daniel DeBonis
+
+We will need programs from a variety of packages to import and convert these tables, so importing the relevant packages is essential.
+```{r}
+library(rvest)
+library(rjson)
+library(tidyverse)
+library(xml2)
+```
+
+#### Importing from html
+After writing the table in Notepad, I can upload it to Github so it can be accessed anywhere.
+```{r}
+html_df <- html_table(read_html("https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/books.html"))
+print(html_df)
+```
+
+#### Importing from XML
+When importing an XML file, there are several steps necessary to convert the file to a data frame, even though I also started by writing the table in XML code in Notepad. 
+First the records need to be extracted then reassigned to a column.
+```{r}
+xml_up <- read_xml("https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/books.xml")
+records <- xml_find_all(xml_up, "//book")
+titles <- xml_text(xml_find_all(records, "title"))
+authors_1 <- xml_text(xml_find_all(records, "author_1"))
+authors_2 <- xml_text(xml_find_all(records, "author_2"))
+years <- xml_text(xml_find_all(records, "year"))
+publishers <- xml_text(xml_find_all(records, "publisher"))
+pages <- xml_text(xml_find_all(records, "pages"))
+```
+
+Once each column is extracted, they can be placed into a dataframe
+```{r}
+xml_df <- data.frame(
+  Title = titles,
+  Author1 = authors_1,
+  Author2 = authors_2,
+  Year = years,
+  Publisher = publishers,
+  Pages = pages,
+  stringsAsFactors = FALSE
+)
+print(xml_df)
+```
+
+#### Importing from JSON
+I also created this table in Notepad following the format from other JSON tables. This type also requires a conversion to make the table a dataframe, but it is a much simpler process.
+```{r}
+json_u <- fromJSON(file = "https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/books.json")
+json_df <- as.data.frame(json_u)
+print(json_df)
+```
+
+Now that the table has been imported in across the three formats, it is clear that for the most part the tables are identical. However, there are some subtle differences between them. One of the most critical differences is how the numerical data was categorized differently in the different conversions. From html, the year and pages columns were classified as integer characters. From xml, the same columns were classified automatically as character strings like every other column in the data frame. Finally from JSON, these columns are classified as doubles. There are some differences in the labels of some columns based on different labels I gave them when making the table.
+Another important distinction is in how the missing value is treated. One book listed only has one author. The uploads from XML and JSON correctly account for this and have an empty cell, but the HTML conversion has two quotations marks in the cell. In fact, every value in that column has quotations marks around them. No quotation marks were used in creating the table, as can be verified from the copy of the html file on Github, yet they appeared for every value in that column.
