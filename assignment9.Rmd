@@ -1,0 +1,30 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## Assignment 9
+### Daniel DeBonis
+
+### Your task is to choose one of the New York Times APIs, construct an interface in R to read in the JSON data, and transform it into an R DataFrame.
+
+Certian packages are necessary in dealing with the JSON format of the API connection.
+```{r}
+library(jsonlite)
+library(httr)
+library(httr2)
+```
+
+I selected the Top Stories API. I decided to search for the top stories that are considered World News. 
+```{r}
+worldraw <- GET("https://api.nytimes.com/svc/topstories/v2/world.json?api-key=V3mpHG49JtsZy4eL53sGtlphnbDHZab3")
+worldtext <- content(worldraw, as = 'text') 
+worldjson <- fromJSON(worldtext)
+worlddf <- worldjson$results
+```
+
+```{r}
+head(worlddf)
+```
+
+The linked API had a lot of information on each article, such as the region of the world concerned, title, author(s), links, and many other variables of interest. If I wanted to do further analysis, an important step would be to specify only the relevant columns be included upon converting from JSON to a data frame in R.
