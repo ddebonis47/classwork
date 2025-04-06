@@ -1,0 +1,203 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+## Week 10 Assignment
+### Daniel DeBonis
+
+### In this assignment, you should start by getting the primary example code from chapter 2 working in an R Markdown document.  You should provide a citation to this base code.  You’re then asked to extend the code in two ways:
+#### Work with a different corpus of your choosing, and
+#### Incorporate at least one additional sentiment lexicon (possibly from another R package that you’ve found through research).
+
+First I need to install the packages that will be used to carry out the sentiment analysis.
+```{r}
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(reshape2)
+library(wordcloud)
+library(sentimentr)
+```
+
+Now the databases of words and their associated sentiments can be downloaded.
+```{r}
+get_sentiments("afinn")
+get_sentiments("bing")
+get_sentiments("nrc")
+
+```
+
+One corpus of text that I would like to do some analysis with is one that I have been collecting regularly in my role as a teacher educator. At the beginning of each semester, I ask my students to respond to the following question: "In a few sentences, share some of your thoughts about math. Is it something that you like/dislike? Is there an aspect you like more/less than others? What have teachers you've had done with math that you found useful or frustrating?"I am personally very interested in analyzing this data to better understand my students. Since this data was originally submitted on Blackboard, I downloaded the responses and compiled them into a single document. I will copy and paste the 39 responses from this semester into R so that they can be placed inside of a dataframe.
+
+```{r echo=FALSE}
+responses <- c("When it comes to math, I like it beacuase there are muliple ways to solve a problem. For the most part as long as you understand the formula your answer will be correct. With this subject you have to be on top of it. If you miss a lesson you will be behind as it builds on from the prior lesson. Something I found useful is when the teacher goes step by step with a problem. Like breaking it down and do a check. Something I found fustrating is when the teacher rushes or dont go back to the problem also if the teacher has an accent they are not taking into consideration thhat some student may not understand.",
+"Math in my opinion is an interesting subject, but challenging especially for myself. I am good with basic math and making math fun, however once letters are added into the equation and formula's I become easily discouraged. Math is definetly something that needs to be practiced, and step by step explainined, as we know once you miss one step in math it can completely throw off the correct answer. I have not had the best of luck with encouraging teachers whom made math or taught math in a useful way, most of my experiences were student to desk while i show you how to do the problem approaches and teaching styles, which is definetly something that I would consider frustrating.",
+"Math was always a subject, that i always had a problem with or that didn't click with me. But after being reintroduce to it, I'm starting to see in different ways on how I use math on a daily. Basic math I'm okay with, when it comes to some equation problems I understand. But fractions long division, the new way to multiple is hard for me to understand. One professor showed me 3 different ways i was able to solve a math problem which was helpful although it don't work for every single math problem.",
+"When I hear the term Math, I instantly feel anxiety and stress creeping up on me. Math is and never was my strongest subject in all throughout my schooling. Therefore. me and math do not get along.. I can probably say its my worst nightmare LOL!. However, there are some topics that I do enjoy. One of them being Order Of Operations which I find really fun. As for past math teachers that I have had in my early years, the one thing that they did that was helpful was the use of visuals when it came to solving certain problems. I am a visual learner so I learn <em>BEST</em> when images, graphs and hands on materials are involved",
+"Hell, my name is Jaquelinne I. Urbano. As part of my education major, I am required to take math courses. I believe that math is interesting and is everywhere we look, not just with numbers and shapes. However, personally, math has been a subject that I have struggled to comprehend since elementary school. I lived in a low income household with parents who did not speak english, therefore they were not able to help me with assignments. During my start of college in 2017, I began to understand some of the basic math concepts but that ony lasted for a short while. The more the semester progressed, the diffcult it was for me to understand a topic. Unfortunately, most of the math courses I took at the time such as algebra, calculus, mathematical physics, statistics and geometry were all courses that I did very poorly on. At the time my major was in occupational therapy and in order to be in the program I had to pass all entry exams , one of that being all math subjects and that was the only exam that I did not do well on. If I were to pick a topic that I do like is absolute value and number theory and my least favorite is fractions and measurement. In my personal experience most of my math teachers made me feel like I was not intelligent because I had difficulty comprehending simple math problems, and as a result I did not have any positive experience in the subject. I am always willing to be better myself and learn and I am looking forward to learn as much as possible in this course.",
+"When it comes to math I’m neutral with it since I do like when I understand but when I don’t I have to be with a person that can teach me slowly step by step and have patience since I am a bit slow to understand math, but I’ll begin understanding it eventually. In algebra, patterns, finding the x and finding the area have been what I’m understanding very well and is something I’ll be able to do easily. In my last class here in Brooklyn college my teacher gave us such an in depth explanation and it was clear which didn’t frustrate me in understanding.", 
+"When I was younger, I used to love math. Math was a subject that I gave little to no thought about because it was so natural to me. As I got older and my attention span began to change, it became more difficult for me. It's all a mindset thing because if I go into a math class/problem with fear, I get anxious. I sometimes avoid it but it always creeps back up. Either way, I'm optimistic and determined about passing and understanding the material in this class no matter what comes my way.",
+"I grew up loving math and having fun but around 5th grade things started getting harder and harder and I felt left behind in a sense . I enjoyed the concept of algebra and fractions but it’s like I would do all this work and my final answer would be wrong it was very discouraging. I had about 3 good math teachers in my life and they were good because they can tell I didnt understand so they were patient with me . I will say this when I did try and got an answer right it felt like the most rewarding thing . No other subject could compare . I hope this semester brings a revelation like never before I’m ready to try harder again .",
+"After I became an adult and decided to pursue a career at the university level, math became a big challenge for me. Among the obstacles I face are my short memory and the language barrier. However, I understand and believe that math is a very essential part of life and education. In other math courses I have taken, the same obstacles have always been present. However, I believe in perseverance and the effort that is put in when you want to achieve goals. I think that each professor has his or her style of teaching, but the ones I have had do not all have the skill in the art of teaching. A useful strategy of one teacher was the tutorials based on topics that the students did not understand.",
+"I have never been a fan of math. Math has always been a struggle of mine ever since I was young. I am not happy at all about taking this class. I have to take this class because its required. Some teachers have done group work which helps working together in math. I work best in group work. Another thing teachers have done is make review sheets that seem to help me in math classes. Having that structure truly helps me know what I need to focus on.", 
+"I excelled in mathematics during elementary school, but my journey took a turn when I dropped out of high school due to economic challenges. After returning to my studies, I faced new and complex math concepts that proved to be quite challenging. However, I adapted and persevered. I enjoy expanding and simplifying long equations, although I find linear and quadratic equations in algebra to be somewhat frustrating. Nevertheless, I remain committed to learning as much as I can to succeed in my class.",
+"I will say I’m neutral with math because I need to know many to know how to calculate the discount when I do my shopping, so I think this is a part that like because I could calculate how much it cost after the discount. Something that my teacher have done with math that I found useful it was she have teacher me how to calculate the discount and I feel like that was very helpful",
+"My thoughts about Math is that it is not an easy subject for me. I have always struggled with Math. I think Math is challenging because there are so many rules and Math has it's own different language. I dislike Math. I do like certain topics in Math such as geometry. I like learning about the different kinds of angles. I don't like to solve word problems. Teachers I had previously have went a little too fast teaching the topics and that was frustrating for me.",
+"I honestly detest math, sorry if it offends anyone, but I have struggled with it every since elementary. My strengths are reading and writing. The only thing I like about math is probably algebra, and that is only because I understand it. Word problems always give me a hard time because I am a bit dyslexic and so I have to practice extra hard with those. Anything past algebra frustrates me because I will never have to use it.",
+"I am not a fan of Math, but I know it is necessary in our daily lives. Math is also a requirement for my double major, which is Early childhood Education and special Education. I find some areas of Math so frustrating like Geometry, Statistics, Calculus etc. The last time I remember taking a Math course was at the beginning of the semester at Brooklyn College which was 2 years ago. I had to take Algebra Precalculus, but I did not enjoy it since it had been years of not taking a math course. Nevertheless, I am looking forward to learning different methods of problem-solving. I am looking forward to learning all the techniques needed to pass the Math Certification Exam.",
+"In high school I hated math but taking some math classes at college helped me realize that I can enjoy math. The time when I get frustrated at math is when I don't understand how to do a certain problem and I have to deal with it so many times, but when I understand it I enjoy the process of solving the problem. An aspect that I don’t like about math is when I need to memorize a formula for a problem, there are a lot of formulas and sometimes I get confused about where and when to use them. Some teachers had made my learning difficult because for me it was hard to understand their teaching, they used to teach fast and not explain every single step they were doing, sometimes I just felt that they were solving the problem for themselves and not teaching their students. Because of this situation, I used to get frustrated but after class when I had to solve a problem I used YouTube videos watching those videos helped me a lot because it was slow teaching and step-by-step and if the first time I didn’t get it I could rewatched the video.",
+"Math is something I've always felt a little less than neutral about. I tend to not like math because it is something I always struggle with, even though I understand it well in class. I'm pretty studious, so I will take notes, ask qiestions, and do alright on homework assignments, but I struggle when it comes to tests. For some reason math exams are much harder for me. I guess the aspect I like about math is that once you know what to do, the steps come naturally and flow into each other pretty well (it's just the starting parts that usually trip me up). I think I learn best when steps are explained in a few ways. I had a professor who, when I asked a questions about the steps, just explained them in the same way over and over instead of using diffeent words to explain the concepts. I don't think I'll struggle too much in this class, as like I said I'm pretty studious, but I'll try my best regardless!",
+"Despite being conditioned to love math by the unsually large number of math professors/doers in my family, I actually really enjoy math and the way that there is a method or specific way of doing things. Following a series of formulas and steps and calculations makes me feel like im training my brain like any other muscle. I feel like I'm well versed and strong in most areas of math and itching to do more math calculations as (I feel) I've done little to none in my degree so far. However, high school honors geometry and I were not the best of friends, though I'm sure I'll follow easily with the basics. My only frustrations with teachers were when they a) were just not very comfortable/good with teaching topics or b) did not try to explain why and only explained that this is the way to do things and that's it. I'm excited to be taking this class!",
+"I’ve struggled with math since the fourth grade. It always felt like we were being rushed through topics without enough time to fully understand them, and that made it frustrating. I don’t think I ever got the right support or scaffolding, so math started to feel overwhelming and stressful. Even now, I still get anxious about it. If there’s one thing I dislike most, it’s when teachers move too fast or assume everyone understands without checking in. I’ve found it helpful when teachers take the time to break things down step by step and let students practice at their own pace. But when they just teach it quickly and expect everyone to keep up, it makes it even harder. I also struggle when teachers explain something in only one way because if I don’t get it the first time, I feel lost. I think math would have been easier for me if there had been more patience, different ways of explaining things, and time to absorb the material.",
+"I was okay with math throughout my early school years. I never liked it as a subject, so I don't have much memory about it in particular. However, learning math became more enjoyable for me when I started college. I was in a program that offered free tutoring for math, so I signed up, and it made math so much easier for me. The teacher explained it to me in a way that allowed me to carry those skills to solve other problems more smoothly. Algebra is what I enjoy the most. Working with variables, equations, or expressions makes sense to me. However, geometry is my weak spot. That subject takes me a while to understand, especially when it involves perimeters, area, or volume.",
+"Regarding math, this is a subject I would like to learn how to solve problems faster when it comes to finding out percentages when walking into a sale or taking out taxes in a pay check. A major dislike in math is solving word problems or fractions. I remeber a high school pre-calculus teacher used to be able to explain how to create and solve equations and he made it fun and challenging.",
+"Math has always been something I was scared of. Before moving to USA, I remember always having strict and mean math teachers. Especially one of them would yell at students when we got something wrong. Also, they liked to call us to come up to the chalkboard and write our answers to the whole class. And if we got it wrong, she used to shame us in front of the entire class. Since then, I have been scared of math. Once I moved to New York, my teachers changed, and the math difficulty also changed. I started loving math, especially geometry. I remember sitting in the back of the class, and my teachers always checked on me because they knew that I would do work for someone else or they would copy me. I loved to use different formulas and solve things in geometry class. Now that I'm in college, I have mixed feelings about math. I enjoy taking math classes in some parts, but in others, I feel pressured to know much more information than I do. Since we are much older and have more education, we should know a lot more math, but in reality, I forget everything once the class is over, so I have just a basic knowledge and understanding of math that I have to remind myself of.",
+"All throughout my early childhood up until high school, math has not been my favorite subject. I used to struggle greatly with math and would have difficulty predicting what kind of strategies to use for different kinds of questions. As I have gotten older, I have become more aware of what formulas to use and have gained more confidence in my math abilities. I enjoy algebra more so than other math aspects such as geometry. In the past teachers have created acronyms for different strategies that I have found useful when determining how to solve different problems.",
+"Deep down I have always enjoyed math. I am naturally a problem solver and someone who looks for pathways--that is to say, I try to understand every element of a situation or experience, logically and emotionally; these qualities seem to align with mathematics, and would suggest that math is something that would make sense to me. However, somewhere along my academic career, I found that not to be the case; math became confusing, and I think my difficulties/negative feelings toward math began somewhere in high school when we started calculus. My organizational skills and continous studying had been more than sufficient for other mathematics courses, but calculus never made sense to me. The deeper we got into concepts, the more I fell behind. I would like to think the teacher was a good teacher, and I should have been more proactive to inform her of my difficulties. However, I will note that she was a very European mathematics-style educator, who had liked for problems and tasks to be completed her way. This was an added difficulty because it involved learning the basics the way she preffered as well. I think teachers who are open to exploring problem solving with students are able to provide their students with much freer understanding of mathematics; that is to say, when teachers can allow and support students in figuring out a problem successfully (even in their own way), the pressures of not understanding mathematics are minimized and math can become more enjoyable.",
+"Math has always been something I’ve struggled with, and honestly, I’ve never liked it. Since I was a kid, it just hasn’t clicked for me, no matter how hard I tried. I’ve spent years trying to understand it, but it still feels confusing and overwhelming. I guess for some people, math just makes sense, but for me, it never has. Many teachers ive had through the years, moved through the material so quickly that I couldn’t keep up, which made things worse. Very few teachers, especially some in elementary school would sit with me and break the problem into smaller steps but as I got older that wasnt possible and I was just told to study harder or find a tutor. I have nothing against math and math teachers but math has just never been my strong suit.",
+"I like math because I find it fun to solve problems with numbers. It is satisfying to work through a problem and find the correct answer. My favorite part of math is algebra, as well as solving physics problems. I enjoy using formulas to solve different types of equations because it feels like solving a puzzle. One thing that has helped me in math is when teachers explain concepts step by step and give plenty of practice problems. It is useful when they show real-life applications of math, especially in physics, because it helps me understand why math is important. However, it can be frustrating when teachers move too fast or don’t explain the logic behind formulas. Overall, I enjoy math because it is both logical and challenging.",
+"I like math very much because the process of solving math problems makes me feel confident. I have met teachers who are very patient in explaining things and helped me a lot, which made me interested in math. I have also met teachers who don't like to explain why and just tell me the correct answer.",
+"From a young age I have always had difficulties with math. I never really liked math and it was very confusing as it can be hard for me to remember formulas and patterns. Fractions and decimals can be a struggle. I have noticed I can pick up strategies better if I write out steps on how to solve a problem. After reviewing the steps it makes it easier. One professor that I had a few semester ago for 1401 helped me get through many struggles by breaking things down and also showing a variety of ways to solve the problem. If there was one that I just could not figure out, I had another option that made it flow a little smoother. I have had other teachers that did not take the time to explain things and I always felt as if I were never going to get it right.",
+"My thoughts on math arent too good. I was never good at it and it isnt something I am the biggest fan of throughout my life. I am not bad at multiplying or dividing but anything other then the basic math skills, I am not good at at all. If I practice and have help in better understanding the topics i will be better at understanding it. I feel that my teacher always used to tell me what to do, nit really explain it and then give us a test and that was it. We werent allowed to do corrections or anything it was always a test after a new topic, which frustrated me becasue I wasnt picking up anything from it.",
+"I like math. The great aspect of math is that it is a universal language and you can use numbers to express complex ideas in a simple way. What I don't like is having to memorize equations. When I was a kid, what I didn't like was having to memorize equations without understanding the problem you had to solve. I didn't think that was solving the problem.",
+"Growing up I always struggled with math, as much as I always tried I never really seemed to understand it. One of the the math subjects that I enjoyed was when learning about graphs/ bar graphs/ line graphs. One of the math subjects that I didn’t really enjoy doing was the math equations at the beginning it sounds easy but as I would start doing them I would start to get lost. Some of the math teachers that I had sometimes made math easier by doing the instructions step by steps. Something that some of my math teachers did that would be frustrating was sometimes just going on with the topic and not further explaining the problems.",
+"I have never had trouble with math throughout my life not even in high school, however, it has been a few years since I have had any practice so I am sure I will be relearning some concepts. I like math because there is a straightforward way to solve a problem and there is usually one right answer. I like that there are different ways to go about solving math problems but everyone should get the same answer. My math teachers always did examples of how to solve a type of question so I would have their example as a reference which I found extremely useful.",
+"Math was a subject that I struggled with in middle school, I had a hard time remembering steps to solve a problem and forgetting formulas. I disliked math because it was not my strongest subject. However, in high school, I became more open to learning and understanding math. I took Math 1006 at Brooklyn College in the winter, which was really challenging, but I pushed myself to do my best and learn it again after a long period. I'd like to push myself to learn math and make it a subject I'm comfortable with. I enjoyed some aspects of algebra, such as distributive property, simplifying algebraic expressions, and solving quadratic equations. Teachers have made it important to clearly explain how to find an answer, using visual explanations and presenting different approaches has been useful.",
+"I didn't like math when I was young, but then I gradually became interested in it. When I was a kid, I always found math especially difficult because my logical thinking skills were not good and I couldn't remember those formulas. My math teacher at that time let us read books to learn those math concepts by ourselves. In class, he only explained the most difficult questions. And the whole learning process was very fast paced. So I always felt sad and frustrated when I was doing my math homework. I could say that math made me feel like I was a stupid person.</p><p>When I came to the U.S., the math in high school was the same as what I had learned in middle school in China. And my math teacher at that time was a very patient person who would always explain every step in detail. In this way, I began to understand a lot of math knowledge that I was not able to understand at one time. After that, I began to enjoy the process of solving problems, and I felt the sense of accomplishment that solving math problems brought me.</p><p>This kind of experience also made me more aware of how teachers should help their students when teaching them math. I don't want my students to feel as helpless and self-doubting about math as I did when I was a child.",
+"I think math is fascinating, especially because of how it involves problem solving and logical thinking. I enjoy the structure and patterns, particularly in algebra and geometry. Sometimes, though, I find that math can feel a bit rigid, which can make it harder to be creative or see real world connections. Teachers who made math engaging by connecting concepts to everyday situations or hands on activities made a big impact. On the other hand, when math felt like just memorization without context, it was much less enjoyable and I begin to feel like I can't do it and as if its gibberish.",
+"I've never been fond of math because I've never been good at it. I always had issues understanding it, and the people who taught me often had very low patience, which made learning even harder. One of the most frustrating things teachers would do was calling on me when I didn’t know the answer and expecting me to solve the problem when I wasn’t sure what to do. That kind of pressure made math feel more stressful rather than helping me learn. If I had to choose, I’d say I like real-life applications of math more because they feel more practical and easier to understand, whereas complex problem-solving and abstract concepts are the aspects I struggle with the most",
+"Math is a subject that I have always tried to remain optimistic about, after learning from Kindergarten through college. Some aspects that I do enjoy are step-by-step guides of a problem, as this always helps me to learn calmly while understanding each step to find the solution. More general topics that I enjoy and look forward to reviewing within this course are “Whole Numbers and Operations”, “Fractions, Ratios, & Proportions”, “Decimals & Percent”, and a few others that I feel confident to review and learn more from this semester. Some topics I don’t necessarily enjoy are Algebraic Thinking and Real numbers, but I am still staying positively optimistic and look forward to learning more as well. Some things my previous teachers have done when teaching math that I have found useful is how many have provided step-by-step visuals of how to solve a problem with examples, how to find the solution, and would integrate “Check My Work” that would allow both my peers and I to visually see how we can check our work to make sure we have found the correct solution. One thing I do truly find frustrating was experiencing some of my previous teachers review lessons at a very fast pace level, especially if we were running behind on coursework. I become more flustered during lesson reviews when it becomes fast-paced as I am trying my best to focus on the explanation of each example and review through the steps. Furthermore, I am looking forward to reviewing and learning more throughout this course as I build on my strengths while improving in areas that will challenge me.",
+"When it comes to math, I don’t really enjoy it, but I know I can learn it when I put in the effort. I can memorize formulas, solve problems, and understand concepts with no problem, but it feels more like a chore than something I genuinely like. I prefer math topics with clear, step-by-step processes, like solving equations, because of the structured methods that I can follow. However, when it comes to more abstract topics, like complex word problems, I find them a bit more frustrating and harder to connect to real-life situations. Something that helps me when it comes to learning math,  is when teachers take the time to explain concepts in multiple ways. For example, breaking problems down into smaller, manageable steps, and providing plenty of examples that show how and why a method works. Being able to see the reasoning behind a concept makes it easier for me to understand rather than just memorizing formulas without context. I also do better when I can practice with similar problems and get step-by-step guidance before trying to solve them on my own.",
+"Math is a very complex subject! I love/dislike math, I love math because it helped me get my current jobs in pharmacy and Starbucks, like for example being a cashier and calculating prescriptions and insulins, etc. There are aspects I love for example pemdas and linear equations, graphing and diagrams! I really do not like geometry. My teachers made math fun at times by creating useful memory codes or ways to remember formulas. I like math at times because it's so useful in everyday life! I also like to read problem questions and try to break the problem question down because it's like investigating and trying to discover the answer. Math is also important because we are able to help teach younger generations to learn and grow and have careers! Without math, there won't be cars, houses, bridges, etc because it all requires math and different key aspects of math!")
+```
+
+```{r}
+df <- tibble(line = 1:39, text = responses)
+undf <- df |>
+  unnest_tokens(word, text)
+data("stop_words")
+tidydf <- undf |>
+  anti_join(stop_words)
+```
+
+Now with common stop words removed, I can get the count of the most commonly used words and have it be more meaningful with certain words removed.
+```{r}
+tidydf |>
+  count(word, sort = TRUE)
+tidydf |>
+  count(word, sort = TRUE) |>
+  filter(n > 10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+No surprise that math is the most commonly used word, since it is the subject of the responses.The majority of the most commonly used words are probably fairly neutral in sentiment; they are primarily words that are domain related.
+```{r}
+mathsent <- tidydf |>
+  inner_join(get_sentiments("bing")) %>%
+  count(word, index=line, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+mathsent <- mathsent |>
+  group_by(index) |>
+  summarize(tot_sen = sum(sentiment))
+ggplot(mathsent, aes(tot_sen)) +
+  geom_histogram()
+```
+
+So far my results are surprising, since this shows more positive coded statements than negative ones, which does not match the content of these responses. 
+
+```{r}
+afinn <- tidydf %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = line) %>% 
+  summarize(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+ggplot(afinn, aes(sentiment)) +
+  geom_histogram()
+```
+
+Comparing with the AFINN lexicon, our values are larger, which makes sense because their scores range from -5 to 5 unlike the -1/1 scoring of the other lexicons. However, there still seem to be more positively coded responses than negative ones. 
+
+```{r}
+nrc <- tidydf |>
+  inner_join(get_sentiments("nrc")) %>%
+  count(word, index=line, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+nrc <- nrc |>
+  group_by(index) |>
+  summarize(tot_sen = sum(sentiment))
+ggplot(nrc, aes(tot_sen)) +
+  geom_histogram()
+```
+
+This seems to be even more positively coded than the other ones. From my knowledge of the data set, what I really need for more accurate results is a version that can account for negators of phrases, since they are present within the corpus of analysis. It would be a good idea to drill down further to see which words are driving these results. 
+```{r}
+bing_word_counts <- tidydf %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+head(bing_word_counts)
+```
+
+I certainly remember reading phrases like "math is not something I enjoy" within the corpus. Additionally, "fast" may not be a positive word in this context, since students mentioned teachers going too fast for them to understand the material. 
+
+```{r}
+afinn_word_counts <- tidydf |>
+  inner_join(get_sentiments("afinn")) |>
+  count(word, value, sort = TRUE) |>
+  ungroup()
+head(afinn_word_counts)
+```
+
+Solve and solving having positive values makes sense particularly thinking of the scale that occurs on the AFINN lexicon, with a value of just 1 since solving means a successful result in math. But the word "hard" having equal weight in the opposite direction seems imbalanced. It is hard to think of words more associated with negativity than "frustrating" or "struggle", yet each is only a -2 on a scale that goes to -5 in intensity. 
+
+```{r}
+nrc_word_counts <- tidydf %>%
+  inner_join(get_sentiments("nrc")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+nrc_word_counts <- nrc_word_counts |>
+  filter(sentiment == c("positive", "negative"))
+head(nrc_word_counts)
+```
+
+Once again, we see words that do not necessarily have a sentimental value in this context being scored with one. The clearest example is "teacher". It is not meant to be positive every time a student mentions a teacher they had or their motivation or struggle in becoming a teacher in their response. 
+
+Next, I want to see the data in the form of a comparison wordcloud, to see more words and how they were classified in these examples
+```{r}
+tidydf %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+For furthering what was provided in the Silge & Robinson text, I found the sentimentr package which is designed to deal with certain issues within a corpus of text, such as negation. This program contains a sentiment function which assigns a value for each sentence
+
+```{r}
+with_pol <- df %>% 
+  get_sentences() %>% 
+  sentiment() %>% 
+  mutate(polarity_level = ifelse(sentiment < 0.2, "Negative",
+                                 ifelse(sentiment > 0.2, "Positive","Neutral")))
+with <- with_pol |>
+  group_by(element_id) |>
+  summarize(tot_sen = mean(sentiment))
+  
+with %>% 
+  ggplot(aes(x=tot_sen)) + geom_histogram()
+```
+
+```{r}
+with_pol |>
+  ggplot(aes(x=polarity_level)) +
+  geom_bar()
+```
+
+Using the benchmark provided from the r-bloggers write up of negatively coded sentences having a value of >.2, we can see that more sentences, as well as our median response, is finally coded as negative, even if only slightly, which is still a more accurate assessment of the corpus. I could not find a way to view the classification that this program uses to determine the rating of words, but by these results it seems like it is comparable, if not more accurate, than the ones used earlier.
