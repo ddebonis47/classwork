@@ -1,0 +1,31 @@
+## Discussion 11 - Recommender Systems
+### Daniel DeBonis
+
+## The recommendation system of Hulu
+Being that it is now Spring Break, there has been more time for leisure than at other points in the semester. Therefore, I have spent some time streaming television, and in such, encountering the various recommendation algorithms that they use to generate what appears when accessing the application. From here, I will focus on Hulu, because I believe I use it the most often, but most of these comments would apply to the majority of these services. 
+
+### Scenario Design
+#### 1. Who are your target users?
+The target user of Hulu is a person who wants to watch television or movies that are contained within their media library. Since this is a business, financial profit is the primary incentive. Therefore, they want this user base to include as many people as possible. 
+
+#### 2. What are their key goals?
+The goal of the user of a service like Hulu is to be able to access a variety of programming that is sufficiently vast/varied/specialized/etc. to justify continuing to pay for access.
+
+#### 3. How can you help them to accomplish their goals?
+This is the main purpose of their recommendation system. In order for the user to perceive the value of the service, the user should be exposed to more programs within the library that the user would likely see value in. This occurs on several levels, in line with the different types of consumer that they are looking to attract. 
+
+### Reverse Engineering
+The first thing seen upon logging in is a large screen focusing on a new release (a new season of a show I had seen in the past). This makes sense since it shows the value of maintaining a current membership, and exemplifies how the library is increasing (although titles leave all the time as well). 
+Below this, titles are generally gathered in series of rows to scroll through. The first row is "TV for you" - likely the section most directly determined by the recommendation system since it contains titles that I had not accessed before on this platform. I may not have an interest in watching each title contained, but generally I can understand how something I had watched prior would appeal to a similar person or crowd. 
+You have to scroll past this all to get to the "Continue Watching" section. This ensures that you are exposed to at least some demonstration of the depth of the library before accessing familiar material which is likely the reason you logged in in the first place.
+Continuing to scroll, the next section also features new additions to the service, followed by the Top 15 titles today. A solid naive guess to what people would like to watch would be the most popular titles, since they are getting the most views.  
+Eventually scrolling down, you can get into the other side of the recommendation system, emphasizing the depth of specific genres or categories rather than the overall breadth of the titles included. For me, the system wants to emphasize the variety contained in such categories as "Sitcoms", "Award-winning TV", and "Comedy Cartoons", since I had seen titles from these categories in the past. 
+It is difficult to fully reverse engineer a recommendation system that contains this many nodes and branches. I found a video from a talk given by a data scientist from Hulu talking about this recommendation system in 2018 (available at https://dl.acm.org/doi/10.1145/3240323.3241730). While I did not have enough technical knowledge to fully understand the talk (especially since it did not include the graphics being referred to in the talk), he mentioned that the basis of the system was a neural network. This matches my expectations given the complex nature of a system needed to tackle this job. It would need to consider variables within multiple categories (genre, actors, year of production, language etc.) at multiple stages of interaction. 
+
+### Recommendations for improvement
+This recommendation system has clearly been worked on and improved over time, so I must acknowledge my relative lack of qualifications, but I do have some ideas.
+First, all recommendations occur at the title level. This makes sense when you consider that the program primarily hosts both movies and television shows, and movies do not have multiple episodes the way that a series does. However, within the television categories, perhaps recommending specific episodes from titles unknown to the user would give another point of entry to the shows, rather than always starting with episode 1 from season 1. The very beginning is rarely a show's best moment, so if you want to grasp a new viewer, perhaps start with an episode that aligns with either their taste or popular taste. Hulu does focus relatively more on television shows compared to services that focus more on movies, so having a recommendation system be able to select episodes would further help set it apart from its competitors. 
+My second piece of advice refers to the balance between wanting to remind the user that the service which they are paying for has value and the use of using the service to begin with. There is clearly a logic in making it relatively harder to access material you were in the middle of watching, particularly by putting it behind top recommendations. However, this comes at the cost of ease of access for customers. Inconvenience does not pair well with entertainment services, especially with the number of them available. 
+
+### Conclusions
+With an entertainment service, you are trying to purchase some of a customer's time and attention, which every person clearly has a limited amount of. Your competition is any other service where people pay to give their attention. A recommendation system helps show that your place is the best one for a given person to be spending their time exploring and enjoying. It needs to be able to show what a customer is looking for for customers that are looking for different things, whether it is a variety of programs in one domain or programs covering a wide variety of domains. The right system is able to show examples of both kinds of material, tailored to the experience and perceived interest of the user.
