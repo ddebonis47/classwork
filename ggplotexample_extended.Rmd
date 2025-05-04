@@ -1,0 +1,80 @@
+---
+title: "Voter Registration Tidyverse Sample"
+author: "Jane Song"
+date: "2025-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+```
+
+## Comparing voter registrations by year
+
+Source: https://github.com/fivethirtyeight/data/blob/master/voter-registration/new-voter-registrations.csv
+
+I found a relatively simple dataset to plot using ggplot2
+
+```{r}
+
+voters <- read.csv("https://raw.githubusercontent.com/fivethirtyeight/data/refs/heads/master/voter-registration/new-voter-registrations.csv") 
+
+voters_df <- voters %>%
+  group_by(Jurisdiction, Year) %>%
+  summarize(total_voters = sum(New.registered.voters, na.rm = TRUE)) 
+
+```
+
+## Comparing total registration per state by year 
+
+```{r}
+  ggplot(voters_df, aes(x = Jurisdiction, y = total_voters, fill = factor(Year))) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Total Voters by State and Year",
+    x = "State",
+    y = "Total Voters",
+    fill = "Year") +
+  theme_minimal()
+```
+
+## Update - Daniel DeBonis
+What if instead of the total voters in each of our two years, we wanted to plot only the change in number of voters? This value can be positive or negative.
+```{r}
+## First pivot in order to calculate difference
+voters_piv <- voters_df |>
+  pivot_wider(names_from = Year, values_from = total_voters)
+voters_piv <- voters_piv |>
+   mutate(Difference = `2020` - `2016`) # needed to use ` symbol to deal with variables with numeric names
+# Then make plot
+voters_piv |>
+  ggplot(aes(x = reorder(Jurisdiction, Difference), Difference)) + #allows us to view states in order of change in voters
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(
+    title = 'Change in votes between 2016 and 2020',
+    y = 'Difference in voters',
+    x = 'State'
+  )
+```
+Now to add color to more clearly show the relative increases and decreases across our timespan.
+
+```{r}
+voters_piv |>
+  ggplot(aes(x = reorder(Jurisdiction, Difference), Difference)) + 
+  geom_bar(stat = "identity", aes(fill=Difference), color = "black") + #sets the fill of bar to be based on the value and added a black border to more easily see bars
+  coord_flip() +
+  labs(
+    title = 'Change in votes between 2016 and 2020',
+    y = 'Difference in voters',
+    x = 'State') +
+    scale_fill_gradient2(low = "red",
+                       mid = "aliceblue",
+                       high = "blue")
+```
+
