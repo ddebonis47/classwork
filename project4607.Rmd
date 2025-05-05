@@ -1,0 +1,79 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## Project 4
+### Daniel DeBonis
+
+### It can be useful to be able to classify new "test" documents using already classified "training" documents.  A common example is using a corpus of labeled spam and ham (non-spam) e-mails to predict whether or not a new document is spam.  
+### For this project, you can start with a spam/ham dataset, then predict the class of new documents (either withheld from the training dataset or from another source such as your own spam folder).   One example corpus:   https://spamassassin.apache.org/old/publiccorpus/ 
+
+```{r}
+library(tidyverse)
+library(tm)
+library(caret)
+```
+
+
+### Importing email corpus and combining into one data set
+```{r}
+allspam <- 'C:/Users/ddebo/Downloads/spamham/20050311_spam_2/spam_2'
+allham <- 'C:/Users/ddebo/Downloads/spamham/20030228_easy_ham_2/easy_ham_2'
+read_emails <- function(dir, label) {
+  files <- list.files(dir, full.names = TRUE)
+  texts <- sapply(files, readLines, warn = FALSE)
+  data.frame(text = sapply(texts, paste, collapse = " "), label = label, stringsAsFactors = FALSE)
+}
+
+spam_data <- read_emails(allspam, "spam")
+ham_data <- read_emails(allham, "ham")
+
+emails <- rbind(spam_data, ham_data)
+table(emails$label)
+```
+
+It looks like we have an almost equal amount of each type of email, which should result in a stronger model.
+
+### Cleaning data
+Since emails contain a lot of data outside of the text body, that needs to be removed from analysis.
+```{r}
+emails$text <- iconv(emails$text, from = "", to = "UTF-8", sub = "byte")
+corpus <- Corpus(VectorSource(emails$text))
+corpus_clean <- tm_map(corpus, content_transformer(tolower)) # convert to lowercase
+corpus_clean <- tm_map(corpus_clean, removePunctuation) # remove punctuation 
+corpus_clean <- tm_map(corpus_clean, removeNumbers) # remove numbers 
+corpus_clean <- tm_map(corpus_clean, removeWords, stopwords("en")) # remove stopwords (the, and, you, etc)
+corpus_clean <- tm_map(corpus_clean, stripWhitespace) # clean extra spaces
+```
+
+After going through the cleaning process, the text needs to be stored in a document-term matrix.
+```{r}
+dtm <- DocumentTermMatrix(corpus_clean)
+
+# Remove sparse terms
+dtm <- removeSparseTerms(dtm, 0.99)
+
+# Convert to data frame
+email_dtm <- as.data.frame(as.matrix(dtm))
+email_dtm$label <- as.factor(emails$label)
+```
+
+### Splitting into Train and Test
+```{r}
+set.seed(68105)
+train_index <- createDataPartition(email_dtm$label, p = 0.8, list = FALSE)
+train_data <- email_dtm[train_index, ]
+test_data <- email_dtm[-train_index, ]
+```
+
+### Naive Bayes
+```{r}
+library(e1071)
+model <- naiveBayes(label ~ ., data = train_data)
+predictions <- predict(model, newdata = test_data)
+
+confusionMatrix(predictions, test_data$label)
+```
+
+With this Naive Bayes model, we have 95% accuracy in labeling. It is also a sign that this model is a step in the right direction is that we have many fewer cases of type 1 error than type 2 error. As specified in class, it is preferable that the occasional spam message slip through the filter than having actual important email wind up in the spam folder.
