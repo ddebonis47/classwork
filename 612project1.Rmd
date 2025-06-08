@@ -1,0 +1,118 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+## Project 1
+### Daniel DeBonis
+
+```{r}
+library(tidyverse)
+```
+
+The following recommender system, like the example from the videos, is used to recommend movies. I had already generated this table last semester, so I figured I could just import it from github and use it for this assignment. 
+```{r}
+movies <- read.csv('https://raw.githubusercontent.com/ddebonis47/classwork/refs/heads/main/movies.csv')
+```
+
+With the dataframe imported in the form of a user-item matrix, I can now choose the test data points. I'm choosing to select one rating per user to be in the test set. 
+```{r}
+set.seed(3659)
+long_m <- movies |>
+  pivot_longer(
+    cols = -Person,
+    names_to = "movie_id",
+    values_to = "rating")
+
+test_m <- long_m |>
+  filter(!is.na(rating))|>
+  group_by(Person)|>
+  slice_sample(n=1) |>
+  ungroup()
+
+train_m <- anti_join(long_m, test_m, by = c("Person", "movie_id", "rating"))
+```
+
+The next step is to find the raw average rating of our training set. 
+```{r}
+raw_avg <- mean(train_m$rating, na.rm=TRUE)
+print(raw_avg)
+```
+
+The average rating in the training set is 3.19. To find the root mean squared error, I can use the formula
+```{r}
+rmse <- sqrt(mean((train_m$rating - raw_avg)^2, na.rm = TRUE))
+print(rmse)
+```
+
+The baseline RMSE is 1.47 for our training data. 
+```{r}
+rmse2 <- sqrt(mean((test_m$rating - raw_avg)^2, na.rm = TRUE))
+print(rmse2)
+```
+
+The RMSE is lower for our test set than our training set, at only 1.18.
+
+The next step is to calculate the biases for each user and each movie:
+```{r}
+user_bias <- train_m |>
+  group_by(Person) |>
+  summarize(b_u = mean(rating - raw_avg, na.rm=TRUE))
+print(user_bias)
+```
+
+```{r}
+item_bias <- train_m |>
+  group_by(movie_id) |>
+  summarize(b_i = mean(rating - raw_avg, na.rm=TRUE))
+print(item_bias)
+```
+
+Combining the biases for item and user, we can generate predictions for our whole training set.
+
+```{r}
+pred <- train_m |>
+  left_join(user_bias, by = 'Person') |>
+  left_join(item_bias, by = 'movie_id')|>
+  mutate(prediction = raw_avg + b_u +b_i)
+print(pred)
+```
+
+Now, the same steps must be applied to the test set.
+```{r}
+user_bias <- test_m |>
+  group_by(Person) |>
+  summarize(b_u = mean(rating - raw_avg, na.rm=TRUE))
+print(user_bias)
+```
+
+```{r}
+item_bias <- test_m |>
+  group_by(movie_id) |>
+  summarize(b_i = mean(rating - raw_avg, na.rm=TRUE))
+print(item_bias)
+```
+
+The method of selecting for the test set ensured every user would be represented, but not every film.
+
+```{r}
+test_pred <- test_m |>
+  left_join(user_bias, by='Person') |>
+  left_join(item_bias, by='movie_id') |>
+  mutate(prediction = raw_avg + b_u + b_i)
+print(test_pred)
+```
+
+To test the accuracy of our predictions, I can again calculate the RMSE.
+```{r}
+rmse3 <- sqrt(mean((pred$prediction - pred$rating)^2, na.rm = TRUE))
+print(rmse3)
+```
+
+We can see an improvement since the RMSE is reduced from before, yet still a greater value than the test group showed with our baseline. 
+```{r}
+rmse4 <- sqrt(mean((test_pred$prediction - test_pred$rating)^2, na.rm = TRUE))
+print(rmse4)
+```
+
+Indeed,  we do see a reduction in RMSE compared to the baseline of the test set. Unsurprisingly accounting for biases led to more accurate predictions/lower error in both sets.
