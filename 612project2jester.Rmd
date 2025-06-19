@@ -1,0 +1,224 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## Project 2
+### Daniel DeBonis
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+On the recommendation of the assignment, I decided to use the third iteration of Jester dataset for this project. This dataset includes the ratings of 54,905 users on 150 different jokes whose text is contained in a separate file. 
+```{r, results='hide'}
+jester <- read_xls("C:/Users/ddebo/Downloads/JesterDataset3/FINAL jester 2006-15.xls", col_names = FALSE)
+```
+
+The jokes need to be uploaded so the text can be vectorized.
+```{r}
+jokes <- read_xlsx("C:/Users/ddebo/Downloads/Dataset3JokeSet/Dataset3JokeSet.xlsx", col_names = FALSE)
+joketext <- jokes$...1
+```
+
+The first column is a count of how many jokes out of the 151 were rated by the user. I do not see how this is going to be relevant, so we can drop that column. 
+```{r}
+jester <- jester[,-1]
+```
+
+Another important aspect of the dataset is the way that missing data is coded. In this case, unrated jokes have a score of 99. The rest of the data is the user ratings for the jokes on a scale from -10 to 10, so I will confirm that is all that is left after coding for NA values
+```{r}
+jester[jester == 99] <- NA
+head(jester)
+```
+
+As this glance confirms, some of the jokes are dropped completely from the data set, mainly due to being outdated. These columns cannot be dropped though, since the column corresponds to the number of the joke that the ratings correspond to.
+
+### Content Based Filtering
+```{r}
+library(text2vec)
+```
+
+#### TF-IDF
+
+In order to analyze the content of the jokes at the word level, the text2vec package can vectorize the words in the jokes. The process of vectorization can be iterated over the joke dataframe.
+```{r}
+tokens <- itoken(joketext,
+                 tokenizer = word_tokenizer,
+                 progressbar = FALSE)
+```
+
+After the words in the jokes are isolated and tokenized, we can build the vocabulary and vectorizer, which are used to create the document-term matrix and the TF-IDF. This allows us to isolate content elements from the text of the joke to be compared later. This particular function weighs words based on their frequency, with rarer words getting greater weight. I had first thought to remove stop words, but this weighting makes that unnecessary. 
+```{r}
+vocab <- create_vocabulary(tokens)
+vect <- vocab_vectorizer(vocab)
+dtm <- create_dtm(tokens, vect)
+tfidf_transformer <- TfIdf$new()
+joke_tfidf <- tfidf_transformer$fit_transform(dtm)
+```
+
+#### User Profiles
+
+The next step is to create a profile for each user based on the jokes that they like where the literal words contained in the joke is the content we are basing it on. Here, we can use a threshold to divide between liking a joke or not. Given the scale from -10 to 10, where zero represents neutrality, a rating of 5 or higher would indicate joke enjoyment. 
+This process is iterated across all 54905 users, though thankfully in not much time.
+```{r}
+library(Matrix)
+userprof <- function(user_ratings, tfidf_matrix, threshold = 5){
+  liked_jokes <- which(!is.na(user_ratings) & user_ratings > threshold)
+  if (length(liked_jokes) == 0) return(rep(0, ncol(tfidf_matrix)))
+  
+  joke_vectors <- tfidf_matrix[liked_jokes, , drop = FALSE]
+  weights <- user_ratings[liked_jokes]
+  
+  profile <- colSums(joke_vectors * weights)
+  return(profile/sum(weights))
+}
+user_profs <- t(apply(jester, 1, userprof, tfidf_matrix = joke_tfidf))
+```
+
+#### Cosine Similarity 
+
+In order to return jokes with similar content to those rated highly by the users, we can compute the cosine similarity between the user's profile and the words in each joke. For this function to work properly, both the joke and users data needs to be contained in a vector, rather than a matrix or a data frame. The lower the angle between these two vectors, the higher the similarity. We can include the text of the joke with the numbers of the jokes identified as the most similar. Additionally, we do not want to recommend a joke that the user has already rated, so it is important to limit results to only those jokes the user has no ratings for. 
+```{r}
+library(lsa)
+recommend_jokes <- function(user_id, top_n = 10){
+  user_vec <- as.vector(user_profs[user_id,])
+  
+  sims <- apply(joke_tfidf, 1, function(joke_vec){
+    cosine(as.vector(joke_vec), user_vec)
+  })
+  
+  already_rated <- ! is.na(jester[user_id, ])
+  sims[already_rated] <- NA
+  
+  top_indices <- order(sims, decreasing = TRUE)[1:top_n]
+  return(data.frame(
+    JokeID = top_indices,
+    Score = sims[top_indices],
+    Joke = joketext[top_indices]
+  ))
+}
+```
+
+To show that this recommendation system works, here are the top ten recommended jokes for user number 5. Looking at the text of the jokes, it seems that this user likes jokes about religion and politics. 
+```{r}
+recommend_jokes(5)
+```
+
+### Item-Item Collaborative Filtering
+This method does have some similarity to that of the previous model since the recommended jokes are chosen based on item ratings, but rather than defining similarity by having similar words within the jokes, this model is based on similarities in the ratings of jokes between users. Here, similarity is determined implicitly, just based on the ratings given rather than relying on the content of the joke to find similarities. I believe this model will provide better recommendations by its nature, since a topic can be addressed with a variety of joke styles.
+The first difficulty encountered in this method is what to do about missing values, of which we have plenty. This model cannot be built with missing data, so imputation is likely the best choice. In this case, I will start by using the average rating of the joke to replace missing values. Then, I need to deal with the jokes that have been removed from analysis, yet whose columns are kept in place to keep the numbering consistent. 
+```{r}
+empty <- which(colSums(!is.na(jester))==0)
+kept_jokes <- setdiff(1:ncol(jester), empty)
+jester_filled <- jester[, kept_jokes]
+for (j in 1:ncol(jester_filled)) {
+  joke_mean <- mean(jester_filled[[j]], na.rm=TRUE)
+  jester_filled[[j]][is.na(jester_filled[[j]])] <- joke_mean
+}
+```
+
+#### Cosine Similarity
+
+Once again, we are using cosine similarity to identify the closest vectors, except now it represents similarity in ratings rather than content. The individual vectors are normalized to account for variability in the scales used by different users. 
+```{r}
+similarity_matrix <- sim2(
+  t(as.matrix(jester_filled)),
+  method = "cosine",
+  norm = 'l2'
+)
+```
+
+The biggest difficulty in creating this model was the inclusion of the columns of jokes stricken from analysis since missing data cannot be used in this type of model. The key was to isolate the jokes that were kept in the analysis and limit analysis to only include those columns. This is why the index is used to keep track of specific jokes based on their position in the data set. 
+```{r}
+ii_recommend <- function(user_id, top_n = 10) {
+  user_ratings <- as.numeric(jester[user_id, ])
+  unrated <- which(is.na(user_ratings))
+  unrated <- unrated[unrated %in% kept_jokes]
+  
+  predicted_scores <- numeric(length(unrated))
+  
+  for (i in seq_along(unrated)) {
+    joke_idx <- unrated[i]
+    joke_model_idx <- which(kept_jokes == joke_idx)
+    
+    rated_jokes <- which(!is.na(user_ratings))
+    rated_jokes_model_idx <- which(kept_jokes %in% rated_jokes)
+    sims <- similarity_matrix[joke_model_idx, rated_jokes_model_idx]
+    ratings <- user_ratings[kept_jokes[rated_jokes_model_idx]]
+    
+    valid <- !is.na(sims) & !is.na(ratings)
+    
+    if (sum(sims[valid]) > 0) {
+      predicted_scores[i] <- sum(sims[valid] * ratings[valid]) / sum(sims[valid])
+    } else {
+      predicted_scores[i] <- mean(user_ratings, na.rm = TRUE)
+    }
+  }
+  top_indices <- unrated[order(predicted_scores, decreasing = TRUE)[1:top_n]]
+  
+  return(data.frame(
+    JokeID = top_indices,
+    Score = predicted_scores[order(predicted_scores, decreasing = TRUE)[1:top_n]],
+    Joke = joketext[top_indices]
+  ))
+}
+```
+
+Once again, I am using user 5 to test the recommender. Politics seems to be a common theme between these jokes, similar to the other recommender. One major issue at this point is that I was under the impression that dated political references, which these jokes are full of, was one of the main motivators in removing jokes from analysis, but indeed there were non-NA values included for the jokes presented in the end. Only ten jokes were truly removed. 
+
+```{r}
+ii_recommend(5)
+```
+
+In fact, I would like to visualize the frequency of these ratings with a heatmap
+```{r}
+non_na <- colSums(!is.na(jester))
+df <- data.frame(Joke = 1:length(non_na), Ratings = non_na)
+
+ggplot(df, aes(x = Joke, y = Ratings)) + 
+  geom_col(fill = 'steelblue') +
+  labs(title = "Number of Ratings per Joke",
+       x = "Joke ID #",
+       y = 'Number of Ratings') +
+  theme_minimal()
+
+```
+
+There is quite a lot of variance in terms of how frequently each joke was rated, but the main finding that this graph confirms is that many of the jokes seemingly cut from the analysis were not. Does the additional information make our model stronger or weaker? 
+
+### Visualizing Relationships
+Generally speaking, there are a few broad varieties of jokes. How similar are the jokes included in this analysis? With 140 entries with ratings, it would be difficult to get any signal from visualizing the whole set at once, but we can begin with a heatmap of the first 20 jokes included.  
+
+```{r}
+library(reshape2)
+sim_small <- similarity_matrix[1:20, 1:20]
+sim_melt <- melt(sim_small)
+
+ggplot(sim_melt, aes(Var1, Var2, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = 'Item-Item Cosine Similarity for the First 20 Jokes',
+       x = 'Joke ID',
+       y = 'Joke ID') +
+  theme_minimal()
+```
+
+There definitely seems to be some type of cluster forming with the last few entries, with jokes 21 and 25 not fitting the trend. We can see the greater scope of the relationships between the jokes with a dendrogram. This allows us to visualize the proximity of the jokes to each other while also grouping them into distinct clusters. It would be nice to be able to determine which branch belonged to which joke to help identify what the clusters have in common, but at least we can get a sense of the spread of categories across these jokes. 
+
+```{r}
+library(mclust)
+joke_dist <- as.dist(1 - similarity_matrix)
+hc <- hclust(joke_dist, method = 'ward.D2')
+plot(hc, labels = FALSE, hang = -1, main = "Jokes Clustered (Hierarchical)")
+             
+```
+
+### Summary and Recommendations
+
+Jokes turned out to be a great choice to acclimate myself into this type of model creation. Each entry is relatively short, making it easy to understand where the comparisons within the similarity matrices are coming from. Although the scope of this dataset is larger than what I have been accustomed to so far, it was relatively easy to understand and work with. 
+It is not completely clear which of the two models used produces better recommendations. By looking at the ten recommendations for our one user, it seems that focusing only on content produces a wider variety of jokes where focusing on the commonalities of ratings in the item-item collaborative filtering model appears to have chosen a set of jokes more closely related in topic and tone. Then again, that is a subjective opinion. The best way to test which of these models is better is to ask the user which one gives jokes that they think is funnier, which is again, subjective. 
+Another angle to look at these results is that there are far more users included in the data set than there are different jokes. It should not be surprising that that number of implicit connections between over 50,000 rater's ratings would produce stronger recommendations than the text in 140 entries. 
+One possibility that I considered for this assignment was to come up with my own way of classifying the jokes in the dataset into categories (wordplay, political, absurd, etc.). In the end, it seemed to be more trouble than it was worth. Humor is notoriously difficult to classify and there is serious doubt whether any classification that I try to use would improve the models over what has been classified by the content contained the the joke or the similarities of ratings between them. Since the userbase was eager to provide their ratings, they likely possess the same amount of expertise as I do when it comes to thinking about what makes something funny.
