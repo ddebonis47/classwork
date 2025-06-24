@@ -1,0 +1,364 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## Project 3
+### Daniel DeBonis
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(recosystem)
+```
+
+
+## Implementing Singular Value Decomposition to the Joke Recommender from the Jester dataset
+### Setting the Stage
+For this week's assignment, I wanted to expand upon the recommender system that I made last week. The final model that I implemented was based on item-item collaborative filtering. The way that I dealt with missing values was by replacing them with the average rating for the joke. 
+This week, the goal is to improve this model by implementing singular value decomposition to improve the recommendations beyond those created at comparing profiles of users based on the items they have rated. The way that singular value decomposition can improve the model is by discovering latent features within the data from both the users and items and by reforming our data as two matrices that contain those preferences and a third with values that correspond to the relative importance of each of those features. The number of features can be controlled by the rows contained in that third matrix, so this is a variable that can be optimized. 
+```{r}
+jester <- read_xls("C:/Users/ddebo/Downloads/JesterDataset3/FINAL jester 2006-15.xls", col_names = FALSE)
+# first column is number of jokes rated
+jester <- jester[,-1]
+# converting 99 to na
+jester[jester == 99] <- NA
+# fixing column names
+colnames(jester) <- as.character(1:150)
+# removing jokes with no ratings at all
+empty <- which(colSums(!is.na(jester))==0)
+kept_jokes <- setdiff(1:ncol(jester), empty)
+jester <- jester[, kept_jokes]
+```
+### Calcuating Sparsity
+Since differences in sparsity would impact the the methods that would be best to use going forward, I want to calculate the percentage of the matrix that has a rating. 
+```{r}
+known <- sum(!is.na(jester))
+total_ent <- nrow(jester) * ncol(jester)
+sparsity <- 1 - (known / total_ent)
+sparsity
+```
+
+With sparsity at 76%, for this model I will not impute the mean the way I did for the previous one. In this case, I have the option to use FunkSVD through the recosystem package. However, first I need to restructure the data into a data frame with three columns, keeping all columns in one column, with the two other columns being the associated user number and joke number. 
+
+### Funk SVD 
+
+```{r}
+library(reshape2)
+jester_df <- as.data.frame(jester)
+jester_df$user_id <- 1:nrow(jester_df)
+ratings_df <- melt(jester_df, id.vars = 'user_id', variable.name = 'joke_id', value.name = 'rating')
+ratings_df <- na.omit(ratings_df)
+```
+
+With the data in proper format, it can be split into training and test data so we can test the model's performance
+```{r}
+set.seed(24601)
+n <- nrow(ratings_df)
+train_indices <- sample(n, size = .8 * n)
+train_df <- ratings_df[train_indices, ]
+test_df <- ratings_df[-train_indices, ]
+```
+
+```{r}
+# train-test split
+train_data <- data_memory(user_index = train_df$user_id,
+                         item_index = train_df$joke_id,
+                         rating = train_df$rating)
+test_data <- data_memory(user_index = test_df$user_id,
+                         item_index = test_df$joke_id,
+                         rating = test_df$rating)
+```
+
+```{r}
+# using recosystem
+reco_model <- Reco()
+reco_model$train(train_data)
+```
+
+With the model tuned on our training data, let us see how well this applies to the test data, allowing use to compute the root mean squared error and mean absolute error
+```{r}
+predicted_ratings <- reco_model$predict(test_data, out_memory())
+actual_ratings <- test_df$rating
+rmse <- sqrt(mean((predicted_ratings - actual_ratings)^2))
+mae <- mean(abs(predicted_ratings - actual_ratings))
+rmse
+mae
+```
+
+The scale used in the data is 21 points long, from -10 to +10, so looking at these values it seems that our model is making predictions 3 or 4 points away from the actual given values. It seems that there is certainly room for improvement in this model. Perhaps some parameters can be tuned. But to be sure I would like to directly compare this model to one that uses the imputation of the mean instead of the FunkSVD which allowed for NA values to be contained.
+```{r}
+reco_model
+```
+
+Now, I want to compare the performance of this FunkSVD model with a classic SVD model based on matrix decomposition. In this case, like last week, I will impute the mean rating of the joke for missing data.
+
+```{r}
+jester_imp <- jester
+for (j in 1:ncol(jester_imp)) {
+  joke_mean <- mean(jester_imp[[j]], na.rm=TRUE)
+  jester_imp[[j]][is.na(jester_imp[[j]])] <- joke_mean
+}
+svd_result <- svd(jester_imp)
+k <- 20
+U_k <- svd_result$u[, 1:k]
+D_k <- diag(svd_result$d[1:k])
+V_k <- svd_result$v[, 1:k]
+pred_matrix_svd <- U_k %*% D_k %*% t(V_k)
+```
+
+```{r}
+pred_svd <- mapply(function(u, i) pred_matrix_svd[u, i], test_df$user_id, test_df$joke_id)
+true_ratings <- test_df$rating
+rmse <- sqrt(mean((pred_svd - true_ratings)^2))
+mae <- mean(abs(pred_svd - true_ratings)) 
+rmse
+mae
+```
+
+### Model Tuning
+Surprisingly, this model is producing recommendations closer to the actual values given. Is this just because the mean is that value more often? Mathematically, it should not have an effect since it adds zero to the mean, but on the other hand, it makes the number divided by to get that mean higher if more values are included. In a dataset that is close to 76 percent sparse, imputing the average could tend to regress predictions to the mean more often. That being said, there is still the option of adjusting some parameters on the FunkSVD model. I did not expect the tuning test to last quite so long, so I will need to set aside an hour or two every time I need to restart.
+```{r}
+set.seed(24601)
+reco_model <- Reco()
+opts <- reco_model$tune(
+  train_data,
+  opts = list(
+    dim = c(5, 10, 15, 20, 25, 30),
+    lrate = c(.01, .03, .05),
+    costp_l2 = c(.01, .1),
+    costq_l2 = c(.01, .1),
+    niter = 20,
+    nthread = 2)
+)
+print(opts$min)
+```
+
+After all of that processing, the RMSE produced in the best tuned model is only slightly lower than the original FunkSVD model found, and still higher than the RMSE from the model without SVD. To investigate further, I'm going to visualize the RMSE using these parameters at several numbers of latent features. The first SVD model chose 10 and the one just tuned recommended the highest of my options provided, 30, so I would like to see if it improves beyond 30. 
+```{r}
+dims <- c(10, 20, 30, 40, 50)
+rmse_values <- numeric(length(dims))
+# training optimized model on the given number of factors
+for (i in seq_along(dims)){
+  cat('Training with dim =', dims[i], "\n")
+  
+  model <- Reco()
+  model$train(train_data, opts = list(
+    dim = dims[i],
+    lrate = .03,
+    costp_l2 = .01,
+    costq_l2 = .01,
+    niter = 20,
+    verbose = FALSE
+  ))
+  
+  pred <- model$predict(test_data, out_memory())
+  
+  rmse <- sqrt(mean((test_df$rating - pred)^2))
+  rmse_values[i] <- rmse
+}
+
+plot(dims, rmse_values, type='b', pch=19, col = 'darkblue',
+     xlab = 'Number of Latent Factors',
+     ylab = 'RMSE on Test Set',
+     main = 'RMSE vs. Count of Latent Factors')
+     
+```
+
+This result was quite surprising, given the previous optimized model said 30 factors would lead to the lowest RMSE, and I was wondering if I should go even higher. This graph shows the opposite, lowest RMSE at only 10 factors, with the error rising as the number increases. My instinct is to trust this visualization more since it uses both the training and test data to compute its error unlike the optimization process which is tuned solely on the training data.
+
+```{r}
+train_rmse <- numeric(length(dims))
+test_rmse <- numeric(length(dims))
+
+for (i in seq_along(dims)){
+  cat('Training with dim =', dims[i], "\n")
+  
+  model <- Reco()
+  model$train(train_data, opts = list(
+    dim = dims[i],
+    lrate = .03,
+    costp_l2 = .01,
+    costq_l2 = .01,
+    niter = 20,
+    verbose = FALSE
+  ))
+  
+  pred_test <- model$predict(test_data, out_memory())
+  test_rmse[i] <- sqrt(mean((test_df$rating - pred_test)^2))
+  pred_train <- model$predict(train_data, out_memory())
+  train_rmse[i] <- sqrt(mean((train_df$rating - pred_train)^2))
+  
+}
+
+plot(dims, test_rmse, type='b', pch=19, col = 'blue', ylim = range(c(train_rmse, test_rmse)), ylab = 'RMSE', xlab = 'Number of Factors', main = 'Train vs Test RMSE')
+lines(dims, train_rmse, type = 'b', pch=19, col = 'red')
+legend('bottomright', legend = c("Test RMSE", "Train RMSE"), col = c("blue", 'red'), pch=19)
+```
+
+I had a hypothesis that the peculiarities I've noticed so far were due at least in part to overfitting. Looking at this graph, that may be the case since we see an increased number of factors significantly decreasing the RMSE for the training set while the same slightly raises the RMSE of the test set. However, I also realize that the MAE was lower for both, so I am curious if the same patterns are shown looking at the mean average error. 
+
+```{r}
+mae_values <- numeric(length(dims))
+# training optimized model on the given number of factors
+for (i in seq_along(dims)){
+  cat('Training with dim =', dims[i], "\n")
+  
+  model <- Reco()
+  model$train(train_data, opts = list(
+    dim = dims[i],
+    lrate = .03,
+    costp_l2 = .01,
+    costq_l2 = .01,
+    niter = 20,
+    verbose = FALSE
+  ))
+  
+  pred <- model$predict(test_data, out_memory())
+  
+  mae <- mean(abs(test_df$rating - pred))
+  mae_values[i] <- mae
+}
+
+plot(dims, mae_values, type='b', pch=19, col = 'darkblue',
+     xlab = 'Number of Latent Factors',
+     ylab = 'MAE on Test Set',
+     main = 'MAE vs. Count of Latent Factors')
+```
+
+The trajectory is very similar so far. Now to compare with both the training and test sets.
+```{r}
+train_mae <- numeric(length(dims))
+test_mae <- numeric(length(dims))
+
+for (i in seq_along(dims)){
+  cat('Training with dim =', dims[i], "\n")
+  
+  model <- Reco()
+  model$train(train_data, opts = list(
+    dim = dims[i],
+    lrate = .03,
+    costp_l2 = .01,
+    costq_l2 = .01,
+    niter = 20,
+    verbose = FALSE
+  ))
+  
+  pred_test <- model$predict(test_data, out_memory())
+  test_mae[i] <- mean(abs(test_df$rating - pred_test))
+  pred_train <- model$predict(train_data, out_memory())
+  train_mae[i] <- mean(abs(train_df$rating - pred_train))
+  
+}
+
+plot(dims, test_mae, type='b', pch=19, col = 'blue', ylim = range(c(train_mae, test_mae)), ylab = 'MAE', xlab = 'Number of Factors', main = 'Train vs Test MAE')
+lines(dims, train_mae, type = 'b', pch=19, col = 'red')
+legend('bottomright', legend = c("Test RMSE", "Train RMSE"), col = c("blue", 'red'), pch=19)
+```
+
+Again, the trajectory looks the same, just with lower values. So, at this point I think it is best to train a model with 10 latent features.
+
+```{r}
+reco_model$train(train_data, opts = list(
+  dim = 10,
+  lrate = .03,
+  costp_12 = .01,
+  costq_l2 = .01,
+  niter = 20
+))
+```
+
+
+### Recommending Jokes
+In any case, I want to see the results of the recommender as it stands. Last week I chose one user to compare results, so this time I will look at more than one to get a better sense of the performance. Again, the data needs to be reorganized so that unrated items can get predicted ratings, which would be used to generate the recommendations.
+
+```{r}
+alljokes <- unique(ratings_df$joke_id)
+allusers <- unique(ratings_df$user_id)
+all_paired <- expand.grid(user_id = allusers, joke_id = alljokes)
+
+rated_pairs <- ratings_df |>
+  select(user_id, joke_id)
+to_predict <- anti_join(all_paired, rated_pairs, by = c("user_id", "joke_id"))
+# need to convert for recosystem
+to_predict_data <- data_memory(user_index = to_predict$user_id, item_index = to_predict$joke_id)
+predicted_ratings <- reco_model$predict(to_predict_data, out_memory())
+recommendations <- cbind(to_predict, pred = predicted_ratings)
+```
+
+Now to reintroduce the actual text of the jokes so they can be included with the predictions. 
+```{r}
+jokes <- read_xlsx("C:/Users/ddebo/Downloads/Dataset3JokeSet/Dataset3JokeSet.xlsx", col_names = FALSE)
+joketext <- jokes$...1
+joke_text_df <- tibble(
+  joke_id = seq_along(joketext),
+  text = joketext
+)
+```
+
+
+```{r}
+top_n_jokes <- recommendations |>
+  group_by(user_id) |>
+  arrange(desc(pred)) |>
+  slice_head(n = 10) |>
+  ungroup()
+# originally this variable was a factor not an integer
+top_n_jokes <- top_n_jokes |>
+  mutate(joke_id = as.integer(as.character(joke_id)))
+top_n_jokes_wtext <- top_n_jokes |>
+  left_join(joke_text_df, by = 'joke_id')
+```
+
+Since I have some familiarity with user #5's tastes, let us start by examining their recommendations
+```{r}
+top_n_jokes_wtext |>
+  filter(user_id == 5) |>
+  arrange(desc(pred)) |>
+  select(user_id, joke_id, text, pred)
+```
+
+Political humor is still showing up in our recommendations, as well as occupational humor. Jokes that are based on or mention nationalities seem to be another common thread in these recommendations. Some recommendations have also occurred in other models, so the consistency is reassuring. One thing that is not reassuring is how low the predicted ratings are for these top recommendations. 
+Now to look at another user, number 5000.
+```{r}
+top_n_jokes_wtext |>
+  filter(user_id == 5000) |>
+  arrange(desc(pred)) |>
+  select(user_id, joke_id, text, pred)
+```
+
+This user seems to have an affinity for gender based humor. Another interesting thing about these recommended jokes is that they include some that had been "stricken" due to their dated nature, and only rated by an even smaller subsection of the userbase. It is an interesting effect, but not as surprising, since they are more likely to not have been rated already by a user, and are thus eligible to be recommended. Only the ten jokes with no votes whatsoever were dropped from the recommender. Furthermore, the highest recommended jokes are predicted to have negative ratings. I want to look at one more user's recommendations.
+
+```{r}
+top_n_jokes_wtext |>
+  filter(user_id == 50000) |>
+  arrange(desc(pred)) |>
+  select(user_id, joke_id, text, pred)
+```
+
+This user's recommendations fit my expectations better. The predicted values of the ratings are all above 6, which would indeed be positive. There are also a few identifiable themes in these recommended jokes, such as occupational and religious jokes. 
+
+### Visualizations and Conclusions
+Given the variance in the predicted scores of these recommended jokes, I am curious to see the distribution of scores made in this model. Are they generally low or did I just happen to pick some cases who are low scorers.
+```{r}
+ggplot(top_n_jokes_wtext, aes(x = pred)) + 
+  geom_histogram(bins = 21, fill = 'green') +
+  labs(title = 'Distribution of Predicted Joke Ratings', x = 'Predicted Score', y = 'Count')
+
+```
+
+This shows that the predictions were not all lower than average. Another thing that the graph shows is the presence of recommended scores over 10, breaking the scale. This is likely not a problem since what matters is the order of the recommendations, not the scale of the score. 
+Even though it will not include which jokes were included in which category, I would like to visualize this classification with a dendrogram. I just need to access the latent factors from the stored model. 
+```{r}
+reco_model$output(out_memory(), out_file(NULL), what = 'joke_id') -> item_factors
+joke_latent <- item_factors |>
+  mutate(as.integer(V1)) |>
+  select(-V1)
+d <- dist(joke_latent[, -ncol(joke_latent)])
+hc <- hclust(d, method = "ward.D2")
+plot(hc, labels = FALSE, main = "Latent Joke Similarity Dendrogram")
+```
+
+Comparing this visually to the dendrogram included for the item-item collaborative filtered model used last week, this looks incredibly similar. Unfortunately, this does not track which joke is which branch on the tree, but the breakdown looks incredibly similar. 
+
+At this point, I believe I have successfully built a recommendation model using singular value decomposition since the generated recommendations seem sensible. The one concern that I still have is the fact the root mean squared error is a point a whole point greater with this model compared to both the simpler model from last week and the SVD model where imputation of the mean was used for missing values. This imputation process could potentially bias the data while still reducing error. With the average value appearing so often, this might smooth out the actual preferences of the user. All things considered, this recommender was improved after the tuning.  
