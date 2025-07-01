@@ -1,0 +1,680 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+## Week 4
+
+### Daniel DeBonis
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(recosystem)
+```
+
+### Comparing Two Recommender Systems
+
+The first step would be to create the two algorithms to be compared. This time, I'll work with the MovieLens data set since it has been used in many examples from class. The data is already built into the recommenderlab package here in R, but the package does not work with the current versions of R that I am using, so I will have to rely on recosystem as I have so far. Of the different sizes of the MovieLens data, I will go with the 100,000 row version to keep processing and knitting manageable.
+
+#### Model 1 - Matrix Factorization
+
+```{r}
+library(data.table)
+library(Matrix)
+ratings <- fread("https://files.grouplens.org/datasets/movielens/ml-100k/u.data")
+colnames(ratings) <- c("user", "item", "rating", "timestamp")
+ratings <- ratings[, .(user, item, rating)]
+```
+
+The first model will be built on Matrix Factorization. The data will need to be split into training and test sets. Twenty percent of the data will be set aside and have their actual scores be compared against those predicted by each model.
+
+```{r}
+set.seed(916358)
+n <- nrow(ratings)
+test_indices <- sample(seq_len(n), size = .2*n)
+test_set <- ratings[test_indices]
+train_set <- ratings[-test_indices]
+```
+
+In order for the recosystem package to work, the data needs to be in the form of a file path.
+
+```{r}
+library(data.table)
+fwrite(train_set, "ml_train.txt", sep = " ", col.names=FALSE)
+fwrite(test_set[, .(user, item)], "ml_test.txt", sep = " ", col.names=FALSE)
+```
+
+```{r}
+r <- Reco()
+r$train(data_file("ml_train.txt"), opts = list(dim=20, niter = 20, verbose = FALSE))
+r$predict(data_file("ml_test.txt"), out_file("ml_pred.txt"))
+predicted_ratings <- scan("ml_pred.txt")
+actual_ratings <- test_set$rating
+```
+
+```{r}
+library(Metrics)
+rmse_mf <- rmse(actual_ratings, predicted_ratings)
+mae_mf <- mae(actual_ratings, predicted_ratings)
+
+rmse_mf
+mae_mf
+```
+
+The average prediction is within one of five points of the actual ratings under both metrics. Last time, I was surprised to see better performance in the item-item collaborative filtering model, so let's see if the same comparison can be made with these models.
+
+### Model 2 - Item-Item Collaborative Filtering
+
+```{r}
+library(Matrix)
+library(proxyC)
+
+rating_matrix <- sparseMatrix(
+  i = train_set$user,
+  j = train_set$item,
+  x = train_set$rating)
+```
+
+Now that the data is in matrix form, similarity can be computed. In this case, I'll use cosine similarity as a baseline.
+
+```{r}
+item_sim <- simil(t(rating_matrix), method = 'cosine')
+```
+
+Now the function to estimate ratings based on the user and item pairs based on the similarity, including options for users with no ratings.
+
+```{r}
+predict_cf <- function(user_id, item_id, rating_matrix, item_sim, k = 20) {
+  user_ratings <- rating_matrix[user_id, ]
+  
+  rated_items <- which(user_ratings > 0)
+  if (length(rated_items) == 0 ) return(NA)
+  
+  sims <- item_sim[item_id, rated_items]
+  ratings <- user_ratings[rated_items]
+  
+  topk <- order(sims, decreasing = TRUE)[1:min(k, length(sims))]
+  sims <- sims[topk]
+  ratings <- ratings[topk]
+  
+  if (sum(sims) == 0) return(NA)
+  pred <- sum(sims * ratings) / sum(sims)
+  return(pred)
+}
+```
+
+Now this function can be applied to the data set
+
+```{r cache=TRUE}
+test_set$pred_cf <- mapply(
+  predict_cf,
+  user_id = test_set$user,
+  item_id = test_set$item,
+  MoreArgs = list(rating_matrix = rating_matrix, item_sim = item_sim, k = 20)
+)
+```
+
+```{r}
+test_eval <- test_set[!is.na(pred_cf)]
+rmse_cf <- rmse(test_eval$rating, test_eval$pred_cf)
+mae_cf <- mae(test_eval$rating, test_eval$pred_cf)
+rmse_cf
+mae_cf
+```
+
+So both Root Mean Squared Error and Mean Average Error are slightly higher for the collaborative filtering model. To further compare, I can combine the predictions made into one dataset, while creating new columns based on these predictions for the error of each model.
+
+### Comparing the Models
+
+```{r}
+test_set$pred_mf <- predicted_ratings
+eval_plot <- test_set[!is.na(pred_cf)]
+
+eval_plot$error_mf <- eval_plot$pred_mf - eval_plot$rating
+eval_plot$error_cf <- eval_plot$pred_cf - eval_plot$rating
+
+ggplot(eval_plot) + 
+  geom_histogram(aes(x = error_mf), fill = "red", alpha = .5, bins= 30) +
+  geom_histogram(aes(x = error_cf), fill = "blue", alpha = .5, bins= 30) + 
+  labs(title = "Prediction Error Distribution", x = 'Prediction Error', y = 'Frequency')+
+  theme_minimal()
+```
+
+Looking at this graph, the first thing that stands out is that the two models seem to make predictions in opposite directions, with the matrix factorization model generating ratings that are lower than expected and the collaborative filtering model generating ones that are higher. Additionally, the mean average is close to zero, which is what we expected, but the curve peaks below zero and the positive tail is larger than its negative one. We can plot the frequency of ratings generated in each model to see how prominent those trends are.
+
+```{r}
+ggplot(eval_plot) +
+  geom_density(aes(x= pred_mf, color = "MF"), size = 1.2)+
+  geom_density(aes(x=pred_cf, color = "CF"), size = 1.2) +
+  labs(title="Distribution of Predicted Ratings", x = "Predicted Rating", y = 'Density')+
+  scale_color_manual(name = "Model", values = c("MF" = 'red', "CF" = 'blue'))+
+  theme_minimal()
+```
+
+The density plot confirms the suspicions that the collaborative filtering model is generating higher predictions on average compared to the matrix factorized model. Remembering that both MAE and RMSE were lower in the MF model. Does our original data follow a more normal appearing distribution? The actual ratings can be added to the density graph, but the distribution would look different being that there are no decimal or fractional values in the actual data.
+
+```{r}
+ggplot(eval_plot) +
+  geom_density(aes(x= pred_mf, color = "MF"), size = 1.2)+
+  geom_density(aes(x=pred_cf, color = "CF"), size = 1.2) +
+  geom_density(aes(x=rating, color = "AR"), size = 1.2) +
+  labs(title="Distribution of Predicted Ratings", x = "Predicted Rating", y = 'Density')+
+  scale_color_manual(name = "Model", values = c("MF" = 'red', "CF" = 'blue', "AR" = 'green'))+
+  theme_minimal()
+```
+
+Looking at the distribution of the actual ratings, I would have expected the collaborative filtering model to be more accurate. The mode of that distribution is closer to the actual most commonly given rating of 4. In any case, another important way to visualize the performance of the models is by plotting the predicted and actual values against each other.
+
+```{r}
+ggplot(eval_plot, aes(x=rating)) +
+  geom_point(aes(y = pred_mf, color = "MF"), alpha = .4)+
+  geom_point(aes(y = pred_cf, color = "CF"), alpha = .4)+
+  geom_abline(slope = 1, intercept = 0, linetype = 'dashed')+
+  labs(title="Predicted vs. Actual Ratings", x = 'Actual Rating', y = 'Predicted Rating') +
+  scale_color_manual(name = "Model", values = c("MF" = 'red', "CF" = 'blue'))+
+  theme_minimal()
+```
+
+It might be a bit hard to judge with the number of overlapping dots, but there is a concerning number of bad predictions across the board. We can't read the minds of the users, but if our model is predicting 5 ratings where 1s are given and vice versa, that is concerning. Another important detail that this plot highlighted is the fact that the predicted ratings are decimal values where the actual rating scale only uses integers. It seems that the predicted scores are rounded implicitly in this graph. I will test this against explicitly rounding the values to see if the graph changes.
+
+```{r}
+clip <- function(x) pmin(pmax(x, 1), 5)
+eval_plot$round_mf <- clip(round(eval_plot$pred_mf))
+eval_plot$round_cf <- clip(round(eval_plot$pred_cf))
+plot_mf <- eval_plot[, .N, by = .(Actual = rating, Predicted = round_mf)]
+plot_mf[, Model:= "MF"]
+plot_cf <- eval_plot[, .N, by = .(Actual = rating, Predicted = round_cf)]
+plot_cf[, Model:= "CF"]
+plot_comb <- rbind(plot_mf, plot_cf)
+```
+
+```{r}
+ggplot(plot_comb, aes(x = Actual, y = Predicted, fill = N))+
+  geom_tile(color = "white") +
+  geom_text(aes(label = N), color = 'black', size = 4) +
+  scale_fill_gradient(low = "white", high = "steelblue", name = "Count") +
+  facet_wrap(~ Model) +
+  labs(title='Heatmap of Rounded Predictions', x = 'Actual Rating', y = 'Rounded Predicted Rating') +
+  theme_minimal()
+```
+
+The heatmap giving the actual number of entries in each sector of this grid is reassuring compared to the scatterplot. While there are definitely some bad recommendations in both models, they are not as common as I had feared. With the strengths and weaknesses of the models visually explored, it is time to compare and improve how each novel, diverse, and serendipitous their recommendations are:
+
+### Novelty
+
+To see the novelty of the recommendations produced, first I must generate predicted scores from movies that a user has not yet rated. I'll start with the Matrix Factorization based model.
+
+```{r}
+all_users <- sort(unique(train_set$user))
+all_items <- sort(unique(train_set$item))
+user_history <- train_set[, .(item = list(item)), by = user]
+setkey(user_history, user)
+```
+
+Now a loop is needed to generate these predictions for unseen movies for the users in the dataset
+
+```{r cache=TRUE, message = FALSE}
+top_n <- 10
+topn_list <- list()
+for (u in all_users) {
+  rated_items <- user_history[user ==u]$item[[1]]
+  candidate_items <- setdiff(all_items, rated_items)
+  user_items <- data.table(user = rep(u, length(candidate_items)), item = candidate_items)
+  fwrite(user_items, "temp.txt", sep = " ", col.names = FALSE)
+  r$predict(data_file("temp.txt"), out_file("tempout.txt"))
+  preds <- scan('tempout.txt')
+  user_items[, pred := preds]
+  top_n_items <- user_items[order(-pred)][1:top_n, .(user, item, pred)]
+  topn_list[[as.character(u)]] <- top_n_items
+}
+```
+
+Now all user's top ten predictions can be compiled into one table so we can tabulate the frequency of recommendations and their predicted scores.
+
+```{r}
+topn_mf <- rbindlist(topn_list)
+```
+
+The first metric I want to explore is novelty. A novel movie to be recommended would be one that the user has never heard of. How often are less popular movies being recommended in spite of their unpopularity? Popularity is easier to calculate based on how many ratings a movie has. Once popularity is found, novelty can be defined as -log2 times the ratio of users being recommended the item divided by total users.
+
+```{r}
+item_popularity <- train_set[, .N, by = item]
+item_popularity[, popularity := N / sum(N)]
+item_popularity[, novelty := -log2(popularity)]
+topn_mf <- merge(topn_mf, item_popularity[, .(item, novelty)], by = 'item', all.x = TRUE)
+```
+
+```{r}
+user_novelty <- topn_mf[, .(avg_novelty = mean(novelty, na.rm = TRUE)), by = user]
+overall_novelty_mf <- mean(user_novelty$avg_novelty, na.rm = TRUE)
+overall_novelty_mf
+```
+
+Moving to the Collaborative Filtering model, let us compute the same metric for novelty. The original loop used ended up taking a very long time to run, so instead I can try making a full prediction matrix by multiplying the matrices that contain the user-movie rating pairs and the similarities between movies. Normalizing is important at this stage as well since the number of similar items can affect the scores
+
+
+```{r}
+pred_cf_matrix <- rating_matrix %*% item_sim
+sim_sums <- Matrix::colSums(abs(item_sim))
+pred_cf_matrix <- sweep(pred_cf_matrix, 2, sim_sums, FUN = "/")
+pred_cf_matrix[rating_matrix >0] <- NA # so recommendations are only from unrated movies
+```
+
+```{r}
+topn_list_cf <- list()
+for (u in 1:nrow(pred_cf_matrix)){
+  user_preds <- pred_cf_matrix[u, ]
+  top_items <- order(user_preds, decreasing = TRUE)[1:top_n]
+  topn_list_cf[[as.character(u)]] <- data.table(
+    user = u,
+    item = top_items,
+    pred = user_preds[top_items]
+  )
+}
+topn_cf <- rbindlist(topn_list_cf)
+```
+
+```{r}
+topn_cf <- merge(topn_cf, item_popularity[, .(item, novelty)], by = 'item', all.x=TRUE)
+```
+
+
+```{r}
+avg_novelty_cf <- mean(topn_cf$novelty, na.rm=TRUE)
+avg_novelty_cf
+```
+
+The computed novelty score is higher for the collaborative filtering model. Let's visualize the distribution. 
+```{r}
+topn_mf[, model := "Matrix Factorization"]
+topn_cf[, model := "Item-Item Collaborative Filtering"]
+combined <- rbind(topn_mf, topn_cf, fill = TRUE)
+ggplot(combined, aes(x = novelty, fill = model)) +
+  geom_density(alpha = .5) +
+  labs(title = "Novelty Distribution of Recommender", x = 'Novelty Score (-log2(popularity))', y = 'Density')+
+  theme_minimal()
+```
+
+It seems that novelty would be a notable feature of the CF model considering the percentage of users whose recommendations' novelty score would be at the highest end of the distribution. The question then becomes would the CF model give recommendations that are too novel? Are many users being recommended movies that no one has heard of? Perhaps the size of the sample plays a role given the number of movies that exist. I want to take a closer look at the data and see which movies are being considered so novel and why.
+```{r}
+topn_cf[novelty > 16][order(-novelty)]
+```
+
+I need to add the titles back in to make any sense of this data.
+```{r}
+movies <- fread("https://files.grouplens.org/datasets/movielens/ml-100k/u.item", sep = "|", header = FALSE, encoding = "Latin-1")
+setnames(movies, c("item", "title", "release_date", "video_release", "IMDB_URL", paste0("genre_", 1:19)))
+movies <- movies[, .(item, title)]
+topn_cf <- merge(topn_cf, movies, by = "item", all.x = TRUE)
+topn_cf[novelty > 16][order(-novelty)]
+```
+
+I am not exactly a cinephile, but I am certain that I have never heard of these movies being recommended. The Substance of Fire was recommended 157 times, which is the sort of unknown film I would expect to see here. It played at several film festivals and grossed about $32,000 in theaters. I have been basing these scores on lists of ten recommendations. I wonder how much it would change if I reduced that number. What percentage of these more obscure recommendations are making the top ten recommendations, but not the top five?
+```{r}
+top_n = 5
+topn_list_cf <- list()
+for (u in 1:nrow(pred_cf_matrix)){
+  user_preds <- pred_cf_matrix[u, ]
+  top_items <- order(user_preds, decreasing = TRUE)[1:top_n]
+  topn_list_cf[[as.character(u)]] <- data.table(
+    user = u,
+    item = top_items,
+    pred = user_preds[top_items]
+  )
+}
+topn_cf <- rbindlist(topn_list_cf)
+topn_cf <- merge(topn_cf, item_popularity[, .(item, novelty)], by = 'item', all.x=TRUE)
+```
+
+```{r}
+avg_novelty_cf <- mean(topn_cf$novelty, na.rm=TRUE)
+avg_novelty_cf
+```
+
+And the average novelty is even higher for the top 5 only in that model! I think that is enough evidence that to be considered successful, that model would need to add some familiarity to its recommendations to balance out the potentially alienating novel recommendations. Just to compare, what is the average novelty rating for the recommendations in the MF model? 
+
+```{r}
+topn_list <- list()
+for (u in all_users) {
+  rated_items <- user_history[user ==u]$item[[1]]
+  candidate_items <- setdiff(all_items, rated_items)
+  user_items <- data.table(user = rep(u, length(candidate_items)), item = candidate_items)
+  fwrite(user_items, "temp.txt", sep = " ", col.names = FALSE)
+  r$predict(data_file("temp.txt"), out_file("tempout.txt"))
+  preds <- scan('tempout.txt')
+  user_items[, pred := preds]
+  top_n_items <- user_items[order(-pred)][1:top_n, .(user, item, pred)]
+  topn_list[[as.character(u)]] <- top_n_items
+}
+topn_mf <- rbindlist(topn_list)
+topn_mf <- merge(topn_mf, item_popularity[, .(item, novelty)], by = 'item', all.x = TRUE)
+user_novelty <- topn_mf[, .(avg_novelty = mean(novelty, na.rm = TRUE)), by = user]
+overall_novelty_mf <- mean(user_novelty$avg_novelty, na.rm = TRUE)
+overall_novelty_mf
+```
+
+So the novelty of the recommendations did not change much between looking at top 5 and top 10 lists for the matrix factorization based model. To understand the meaning of the metric for novelty, one could simply look at the math behind it. At a value of 3, it would mean about 1/8 of the userbase has rated the item. At a value of 10, that would relate to 1/1024 of the userbase. With values around 17, as observed in the other model, those recommendations are likely based on only one rating out of the 80,000 in the model. A score of 12 still is more obscure than I would have expected, but hopefully hits closer to the sweet spot of novelty.
+
+### Diversity
+Diversity among the recommendations would signify that the movies being recommended are less similar to each other. Without adequate diversity in recommendation, all movies would be from the same genre or have the same cast members or be based on some other type of cluster. Similar to novelty, it is the inverse of an easier metric to compute, similarity. Diversity is calculated as 1 minus the average cosine similarity among the pairs within each top 5 recommendation list.
+```{r}
+item_sim_dense <- as.matrix(item_sim)
+get_diversity <- function(topn_table, item_sim_dense){
+  users <- unique(topn_table$user)
+  diversity_scores <- numeric(length(users))
+  
+  for (i in seq_along(users)) {
+    u <- users[i]
+    items <- topn_table[user == u, item]
+    
+    if (length(items) < 2) {
+      diversity_scores[i] <- NA
+      next
+    }
+    sim_vals <- combn(items, 2, function(x) {
+      item_sim_dense[x[1], x[2]]
+    })
+    avg_sim <- mean(sim_vals, na.rm=TRUE)
+    diversity_scores[i] <- 1 - avg_sim
+  }
+  mean(diversity_scores, na.rm=TRUE)
+}
+```
+
+Now to apply the diversity scores to the lists for each model. Again, due to processing taking a very long time, I needed to change the format of the matrix to a dense one to make the matching go faster. Additionally, the large number of zeroes in the sparse data set produced very high values for diversity. 
+
+```{r}
+item_sim_dense[item_sim_dense == 0] <- NA
+div_mf <- get_diversity(topn_mf, item_sim_dense)
+div_cf <- get_diversity(topn_cf, item_sim_dense)
+
+div_mf
+div_cf
+```
+
+Here, both models are producing diverse recommendations, but the Matrix Factorization based model has a very high value for diversity. I expected a higher value for the MF model in diversity due to the nature of using latent features to classify within the model, but the value produced is even higher than expected. Now to visualize this on the user level:
+
+```{r}
+get_div_per_user <- function(topn_table, item_sim_matrix){
+  users <- unique(topn_table$user)
+  user_diversity <- data.table(user = users, diversity = NA_real_)
+  
+  for (i in seq_along(users)) {
+    u <- users[i]
+    items <- topn_table[user == u, item]
+    if (length(items) < 2) next
+    sim_vals <- combn(items, 2, function(x) {
+      item_sim_matrix[x[1], x[2]]
+    })
+    avg_sim <- mean(sim_vals, na.rm=TRUE)
+    user_diversity[user == u, diversity := 1 - avg_sim]
+  }
+  return(user_diversity)
+}
+```
+
+```{r}
+divusers_cf <- get_div_per_user(topn_cf, item_sim_dense)
+divusers_mf <- get_div_per_user(topn_mf, item_sim_dense)
+divusers_cf[, model :="Item-Item Collaborative Filtering"]
+divusers_mf[, model :="Matrix Factorization"]
+div_all <- rbind(divusers_cf, divusers_mf)
+```
+
+```{r}
+ggplot(div_all, aes(x = diversity, fill = model)) +
+  geom_density(alpha = .5) +
+  labs(title = "Per-User Diversity Distribution", x = "Diversity Score (1 - Average Simularity)", y = "Density") +
+  theme_minimal()
+
+```
+
+Whereas the CF model produces recommendations with a diverse range of diversity scores, that is not the case for the MF model, where each user is getting recommendations that are highly diverse from each other. I found the distribution of the diversity scores in the MF model to be suspiciously diverse, so I am testing to see if there was an issue in cross referencing between the dense matrix and the item IDs. This is my attempt to fix that. 
+
+```{r}
+item_ids <- sort(unique(c(topn_mf$item, topn_cf$item)))
+item_lookup <- data.table(item = item_ids, index = seq_along(item_ids))
+topn_mf <- merge(topn_mf, item_lookup, by = 'item', all.x=TRUE, suffixes = c("", ".lookup"))
+topn_cf <- merge(topn_cf, item_lookup, by = 'item', all.x=TRUE, suffixes = c("", ".lookup"))
+```
+```{r}
+get_div_per_user <- function(topn_table, sim_matrix){
+  users <- unique(topn_table$user)
+  result <- data.table(user = users, avg_sim = NA_real_)
+  
+  for (i in seq_along(users)) {
+    u <- users[i]
+    inds <- topn_table[user == u, index]
+    if (length(inds) <2) next
+    pairs <- combn(inds, 2)
+    sims <- apply(pairs, 2, function(x) sim_matrix[x[1], x[2]])
+    result[user == u, avg_sim := mean(sims, na.rm=TRUE)]
+  }
+  return(result)
+}
+```
+
+```{r}
+mf_avg_sim <- get_div_per_user(topn_mf, item_sim_dense)
+cf_avg_sim <- get_div_per_user(topn_cf, item_sim_dense)
+mf_avg_sim[, diversity := 1 - avg_sim]
+mf_avg_sim[, model := "Matrix Factorization"]
+cf_avg_sim <- get_div_per_user(topn_cf, item_sim_dense)
+cf_avg_sim[, diversity := 1 - avg_sim]
+cf_avg_sim[, model := "Item-Item Collaborative"]
+diversity_all <- rbind(mf_avg_sim[, .(user, diversity, model)],
+                       cf_avg_sim[, .(user, diversity, model)])
+ggplot(diversity_all, aes(x = diversity, fill = model)) +
+  geom_density(alpha = .5)+
+  labs(title = "Per-User Diversity Distribution", x = "Diversity Score", y = "Density") +
+  theme_minimal()
+
+```
+
+I feel like whatever I was doing to correct the associations for the Matrix Factorized model has been undone and now the same is happening to the other model as well. I can hardly keep track of all of the changes. At this point I am going to try to recreate the similarity matrix.
+```{r}
+library(proxy)
+dense_matrix <- as(rating_matrix, "matrix")
+dense_matrix[is.na(dense_matrix)] <- 0
+item_sim_dense <- as.matrix(simil(t(dense_matrix), method = 'cosine'))
+diag(item_sim_dense) <- NA
+item_sim_dense[item_sim_dense == 0] <- NA #need to make sure missing values are not zeroes for the calculation since that would bias results
+```
+
+With a new dense matrix, let's see what happens
+```{r}
+mf_avg_sim <- get_div_per_user(topn_mf, item_sim_dense)
+cf_avg_sim <- get_div_per_user(topn_cf, item_sim_dense)
+mf_avg_sim[, diversity := 1 - avg_sim]
+mf_avg_sim[, model := "Matrix Factorization"]
+cf_avg_sim <- get_div_per_user(topn_cf, item_sim_dense)
+cf_avg_sim[, diversity := 1 - avg_sim]
+cf_avg_sim[, model := "Item-Item Collaborative"]
+diversity_all <- rbind(mf_avg_sim[, .(user, diversity, model)],
+                       cf_avg_sim[, .(user, diversity, model)])
+ggplot(diversity_all, aes(x = diversity, fill = model)) +
+  geom_density(alpha = .5)+
+  labs(title = "Per-User Diversity Distribution", x = "Diversity Score", y = "Density") +
+  theme_minimal()
+
+```
+
+And I'm stumped. Are the new item indices wrong? It is frustrating to not be able to confirm this. 
+
+### Serendipity
+A recommendation is serendipitous if it is both unexpected and relevant to the user's interests. The way that serendipity is measured in a recommender system is by looking at the quality of recommendations after removing those above a given threshold of similarity. From the last section, it seemed that similarity was generally low across all recommendations in this data set, which I still do not buy and believe is due to a mistake I made, so I'll use a fairly low threshold to remove expected recommendations to assess the serendipitous ones. 
+```{r}
+similarity_threshold <- .3
+triplet <- summary(rating_matrix)
+user_hist_table <- data.table(user = triplet$i, rated_item = triplet$j)
+
+```
+
+```{r}
+get_serendipity <- function(topn_table, item_sim_matrix, prediction_matrix, user_hist_table, threshold = 0.3) {
+  users <- unique(topn_table$user)
+  serendipity_scores <- numeric(length(users))
+  
+  for (i in seq_along(users)) {
+    this_user <- users[i]
+    
+    rec_items <- topn_table[topn_table$user == this_user, item]
+    rows <- which(user_hist_table$user == this_user)
+    rated_items <- user_hist_table[rows, ]$rated_item
+    if (length(rated_items) == 0 || length(rec_items) == 0) {
+      serendipity_scores[i] <- NA
+      next
+    }
+    
+    surprising_items <- c()
+    for (rec_item in rec_items) {
+      sim_vals <- item_sim_matrix[as.character(rec_item), as.character(rated_items), drop = FALSE]
+      max_sim <- suppressWarnings(max(sim_vals, na.rm = TRUE))
+      if (is.na(max_sim) || max_sim < threshold) {
+        surprising_items <- c(surprising_items, rec_item)
+      }
+    }
+    
+    if (length(surprising_items) > 0) {
+      preds <- prediction_matrix[this_user, as.character(surprising_items)]
+      serendipity_scores[i] <- mean(preds, na.rm = TRUE)
+    } else {
+      serendipity_scores[i] <- NA
+    }
+  }
+  
+  return(data.table(user = users, serendipity = serendipity_scores))
+}
+```
+```{r}
+serendipity_mf <- get_serendipity(topn_mf, item_sim_dense, prediction_mf, user_history, similarity_threshold)
+serendipity_cf <- get_serendipity(topn_cf, item_sim_dense, prediction_cf, user_history, similarity_threshold)
+```
+
+The indexing is a major problem here that hopefully I can get sorted
+```{r}
+common_items <- as.character(item_lookup$item)
+length(common_items)
+```
+
+This is evidence that there are 353 movies represented in this dataset and ratings from 943 users, yet on the main prediction matrix, 1,682 movies are included, which is the number cited by the website. I can't find where my indexing went off track, and maybe it never did. At this point, it might have to do with the training and test split, where only the data in the test section is being used to make these calculations. Unlike the first comparisons using RMSE, these other metrics require predictions for every example in the matrix. 
+```{r}
+#prediction_cf <- pred_cf_matrix
+#length(all_users) == nrow(prediction_cf)
+#length(all_items) == ncol(prediction_cf)
+#rownames(prediction_cf) <- as.character(all_users)
+#colnames(prediction_cf) <- as.character(all_items)
+
+#rownames(prediction_mf) <- as.character(all_users)
+#colnames(prediction_mf) <- as.character(all_items)
+#item_sim_dense <- item_sim_dense[common_items, common_items]
+#topn_cf <- topn_cf[item %in% common_items]
+#topn_cf[, item := as.character(item)]
+#user_hist_table <- user_hist_table[rated_item %in% common_items]
+#user_hist_table[, rated_item := as.character(rated_item)]
+```
+
+
+### Restarting Matrix Factorization
+
+Of course the alternate way I was using to remake the matrix factorized model gave me many problems. The necessary step of adding predictions to the training set seems to be too demanding of a task to be attempted. My solution is to try to run the prediction in batches
+```{r}
+all_users <- 1:943
+all_items <- 1:1682
+full_grid <- expand.grid(user = all_users, item = all_items)
+chunk_size <- 200000
+n <- nrow(full_grid)
+num_chunks <- ceiling(n / chunk_size)
+pred_list <- vector("list", num_chunks)
+
+# to loop over the chunks
+for (i in seq_len(num_chunks)) {
+  cat("Processing chunk", i, "of", num_chunks, "\n")
+  start_row <- ((i - 1)* chunk_size) + 1
+  end_row <- min(i * chunk_size, n)
+  chunk <- full_grid[start_row:end_row, ]
+  preds <- r$predict(
+    data_memory(chunk$user, chunk$item, out_memory = TRUE)
+  )
+  pred_list[[i]]<- data.table(
+    user = chunk$user,
+    item = chunk$item,
+    predicted_rating = preds
+  )
+}
+pred_data <- rbindlist(pred_list)
+library(reshape2)
+prediction_mf <- acast(pred_data, user ~ item, value.var = "predicted_rating")
+```
+
+Let's see how this affects the recommendations being generated now that hopefully all indexing issues are addressed. 
+```{r}
+topn_mf <- pred_data[order(-predicted_rating), .SD[1:10], by = user]
+```
+
+### Attempt 2 for Matrix Factorization
+Since we had to compute the predicted value for the training as well as the test sets, we can compute RMSE and MAE across the entire dataset in comparing the predicted and actual ratings.
+```{r}
+rating_eval <- merge(ratings, pred_data, by = c("user", "item"))
+mae <- mean(abs(rating_eval$rating - rating_eval$predicted_rating))
+rmse <- sqrt(mean((rating_eval$rating - rating_eval$predicted_rating)^2))
+mae
+rmse
+```
+
+So far no red flags, the error is slightly lower than when only the test set was assessed. But now that we have all of the necessary ratings and predictions, time to retry the other metrics:
+```{r}
+item_popularity <- pred_data[, .N, by = item]
+item_popularity[, popularity := N / sum(N)]
+item_popularity[, novelty := -log2(popularity)]
+pred_data <- merge(pred_data, item_popularity[, .(item, novelty)], by = "item", all.x=TRUE)
+topn_mf <- pred_data[order(-predicted_rating), .SD[1:10], by = user]
+user_novelty <- topn_mf[, .(avg_novelty = mean(novelty, na.rm = TRUE)), by = user]
+overall_novelty_mf <- mean(user_novelty$avg_novelty, na.rm = TRUE)
+overall_novelty_mf
+```
+
+This score is a bit closer to expectations, though not terribly far from the original value (11.8). Moving on to diversity...
+
+```{r}
+get_diversity <- function(user_id, topn_table, sim_matrix) {
+  items <- topn_table[user == user_id, item]
+  if (length(items) < 2) return(NA)
+
+  pairs <- combn(items, 2, simplify = FALSE)
+
+  sim_vals <- sapply(pairs, function(pair) {
+    i1 <- pair[1]
+    i2 <- pair[2]
+    sim <- sim_matrix[i1, i2]
+    return(1 - sim)
+  })
+
+  return(mean(sim_vals, na.rm = TRUE))
+}
+```
+```{r}
+diversity_mf <- data.table(user = topn_mf$user, 
+                           diversity = sapply(topn_mf$user, get_diversity, topn_table = topn_mf, sim_matrix = item_sim_dense))
+diversity_cf <- data.table(user = topn_cf$user, 
+                           diversity = sapply(topn_cf$user, get_diversity, topn_table = topn_mf, sim_matrix = item_sim_dense))
+```
+
+```{r}
+#noting model 
+diversity_cf[, model :="CF"]
+diversity_mf[, model :="MF"]
+#combining
+diversity_all <- rbind(diversity_cf, diversity_mf)
+# plotting
+ggplot(diversity_all, aes(x = diversity, fill = model)) +
+  geom_histogram(position = 'identity', alpha = .5, binwidth = .05)+
+  labs(title="Diversity Comparison", x = 'Average Pairwise Dissimilarity', y = 'Number of Users') +
+  theme_minimal()
+```
+
+These diversity values are still higher than anticipated in both models. Also, both groups should have the same count since they are based on the same data, so there could be something wrong where there are fewer values under CF, or more were filtered earlier in the process for not having enough ratings. 
+
+### What if online processing were possible?
+The models are both limited by nature of being based on offline data that has already been collected. The different metrics discussed here so far are useful in assessing how well a recommender is performing, but the final determination comes to the needs and desires of the end user. In this case, the question is what would be possible if users were actually able to receive these recommendations, so we could also assess how often the recommendations were chosen and whether the movie was watched for its entire duration. This would be the ideal way to assess the usefulness of the two models discussed since the goal is to make recommendations that the user appreciates. The models seem to both have very high rates of diversity within their recommendations, so perhaps end users could be given recommendations based on two different models, one as is and one that attempts to give more expected, related recommendations, and then metrics like click rates and retention can be measured and compared. The goal is to strike a balance between familiarity and exploration that results in more movies being watched. The amount of time being spent watching movies and how frequently the service is being used to generate recommendations are two metrics that can be easily collected and assessed, providing insights that would likely be more informative than the ones explored earlier in this assignment. 
